@@ -1,40 +1,59 @@
-from fastapi import FastAPI
-from pydantic import BaseModel
-from transformers import AutoModelForCausalLM, AutoTokenizer
-import torch
+import os
+import faiss
+import numpy as np
+from sentence_transformers import SentenceTransformer
 
-# Initialize FastAPI app
-app = FastAPI()
+# Load the pre-trained embedding model
+model = SentenceTransformer('all-MiniLM-L6-v2')
 
-# Load model and tokenizer locally (distilgpt2 in this case)
-model_name = "mistralai/Mistral-7B-Instruct-v0.1"  # Replace with the actual model name (e.g., Mistral model)
-tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name)
+# Function to load the document
+def load_document(file_path):
+    with open(file_path, 'r', encoding='utf-8') as file:
+        return file.read()
 
-# Option 1: Set pad_token to eos_token
-tokenizer.pad_token = tokenizer.eos_token
+# Function to split text into smaller chunks
+def chunk_text(text, chunk_size=512):
+    words = text.split()
+    return [' '.join(words[i:i+chunk_size]) for i in range(0, len(words), chunk_size)]
 
-# Pydantic model for request validation
-class InputData(BaseModel):
-    text: str
+# Function to embed text chunks using the model
+def embed_chunks(chunks):
+    return model.encode(chunks)
 
-# Function to generate model response
-def generate_response(input_text: str):
-    # Tokenize input text with attention mask and padding enabled
-    inputs = tokenizer(input_text, return_tensors="pt", padding=True, truncation=True)
+# Function to create and query FAISS index
+def create_faiss_index(embeddings):
+    dimension = embeddings.shape[1]
+    index = faiss.IndexFlatL2(dimension)
+    index.add(np.array(embeddings))
+    return index
+
+def query_index(index, query, top_k=3):
+    query_embedding = model.encode([query])
+    distances, indices = index.search(np.array(query_embedding), top_k)
+    return indices[0]
+
+# Main workflow
+if __name__ == "__main__":
+    # Prompt user to add document
+    doc_name = input("Enter the document name (located in the 'documents/' folder, with extension): ")
+    doc_path = os.path.join('documents', doc_name)
     
-    # Generate response with attention mask
-    outputs = model.generate(
-        inputs.input_ids, 
-        attention_mask=inputs.attention_mask,  # Add attention_mask here
-        max_length=50
-    )
-    
-    # Decode the generated tokens
-    return tokenizer.decode(outputs[0], skip_special_tokens=True)
+    if not os.path.exists(doc_path):
+        print(f"Error: {doc_name} not found in the 'documents/' folder.")
+    else:
+        # Load and process the document
+        text = load_document(doc_path)
+        chunks = chunk_text(text, chunk_size=512)  # Split text into chunks
+        embeddings = embed_chunks(chunks)          # Embed each chunk
 
-# API endpoint to send data to the model
-@app.post("/send-to-model")
-def send_to_model(data: InputData):
-    model_response = generate_response(data.text)
-    return {"response": model_response}
+        # Create FAISS index for similarity search
+        index = create_faiss_index(embeddings)
+        
+        # Prompt for a query to retrieve similar chunks
+        user_query = input("Enter a query to search the document: ")
+        result_indices = query_index(index, user_query)
+
+        # Output the top matching chunks
+        print("\nTop matching chunks:")
+        for idx in result_indices:
+            print(f"\nChunk {idx+1}:\n{chunks[idx]}")
