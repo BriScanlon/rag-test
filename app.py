@@ -1,15 +1,31 @@
 import os
 import faiss
 import numpy as np
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
 from sentence_transformers import SentenceTransformer
 
 # Load the pre-trained embedding model
 model = SentenceTransformer('all-MiniLM-L6-v2')
 
+# Initialize FastAPI app
+app = FastAPI()
+
+# Folder containing the documents
+DOCUMENTS_FOLDER = 'documents/'
+
+# Pydantic model for request body
+class DocumentQueryRequest(BaseModel):
+    document_name: str  # Name of the document to search in
+    user_query: str  # Query for searching the document
+
 # Function to load the document
 def load_document(file_path):
-    with open(file_path, 'r', encoding='utf-8') as file:
-        return file.read()
+    try:
+        with open(file_path, 'r', encoding='utf-8') as file:
+            return file.read()
+    except FileNotFoundError:
+        return None
 
 # Function to split text into smaller chunks
 def chunk_text(text, chunk_size=512):
@@ -27,33 +43,43 @@ def create_faiss_index(embeddings):
     index.add(np.array(embeddings))
     return index
 
-def query_index(index, query, top_k=3):
+def query_index(index, query, top_k=4):
     query_embedding = model.encode([query])
     distances, indices = index.search(np.array(query_embedding), top_k)
     return indices[0]
 
-# Main workflow
-if __name__ == "__main__":
-    # Prompt user to add document
-    doc_name = input("Enter the document name (located in the 'documents/' folder, with extension): ")
-    doc_path = os.path.join('documents', doc_name)
+# FastAPI POST endpoint to process document and query
+@app.post("/process_document/")
+async def process_document(request: DocumentQueryRequest):
+    # Get document name and user query from the request body
+    document_name = request.document_name
+    user_query = request.user_query
+
+    if not document_name or not user_query:
+        raise HTTPException(status_code=400, detail="Both document name and user query must be provided.")
     
-    if not os.path.exists(doc_path):
-        print(f"Error: {doc_name} not found in the 'documents/' folder.")
-    else:
-        # Load and process the document
-        text = load_document(doc_path)
-        chunks = chunk_text(text, chunk_size=512)  # Split text into chunks
-        embeddings = embed_chunks(chunks)          # Embed each chunk
+    # Construct document path
+    document_path = os.path.join(DOCUMENTS_FOLDER, document_name)
+    
+    # Load the document
+    document_text = load_document(document_path)
+    if document_text is None:
+        raise HTTPException(status_code=404, detail=f"Document '{document_name}' not found.")
+    
+    # Split document into chunks
+    chunks = chunk_text(document_text, chunk_size=512)
 
-        # Create FAISS index for similarity search
-        index = create_faiss_index(embeddings)
-        
-        # Prompt for a query to retrieve similar chunks
-        user_query = input("Enter a query to search the document: ")
-        result_indices = query_index(index, user_query)
+    # Embed each chunk
+    embeddings = embed_chunks(chunks)
 
-        # Output the top matching chunks
-        print("\nTop matching chunks:")
-        for idx in result_indices:
-            print(f"\nChunk {idx+1}:\n{chunks[idx]}")
+    # Create FAISS index for similarity search
+    index = create_faiss_index(embeddings)
+
+    # Query the index
+    result_indices = query_index(index, user_query)
+
+    # Retrieve the top matching chunks
+    result_chunks = [{"document_name": document_name, "chunk": chunks[idx]} for idx in result_indices]
+
+    return {"top_matching_chunks": result_chunks}
+
