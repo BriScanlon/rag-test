@@ -8,6 +8,7 @@ from vectorising import embed_chunks
 from indexing import create_faiss_index, query_index
 from sentence_transformers import SentenceTransformer
 from rag_request import send_to_rag_api
+import numpy as np
 
 # Load the pre-trained embedding model for query embedding
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -28,10 +29,9 @@ app.add_middleware(
 DOCUMENTS_FOLDER = "documents/"
 
 
-# Pydantic model for request body
+# Pydantic model for request body (only the user query)
 class DocumentQueryRequest(BaseModel):
-    document_name: str  # Name of the document to search in
-    user_query: str  # Query for searching the document
+    user_query: str  # Query for searching the documents
 
 
 # Function to load the document
@@ -47,52 +47,60 @@ def load_document(file_path):
         return None
 
 
-# FastAPI POST endpoint to process document and query
-@app.post("/process_document/")
-async def process_document(request: DocumentQueryRequest):
-    print("1. Beginning process document function")
-    # Get document name and user query from the request body
-    document_name = request.document_name
+# FastAPI POST endpoint to process all documents and query
+@app.post("/process_documents/")
+async def process_documents(request: DocumentQueryRequest):
+    print("1. Beginning process documents function")
     user_query = request.user_query
 
-    if not document_name or not user_query:
+    if not user_query:
         raise HTTPException(
-            status_code=400,
-            detail="Both document name and user query must be provided.",
+            status_code=400, detail="User query must be provided."
         )
 
-    # Construct document path
-    document_path = os.path.join(DOCUMENTS_FOLDER, document_name)
+    # Initialize storage for document chunks and embeddings
+    all_chunks = []
+    all_embeddings = []
 
-    # Load the document
-    document_text = load_document(document_path)
-    if document_text is None:
+    # Iterate over all documents in the folder
+    for document_name in os.listdir(DOCUMENTS_FOLDER):
+        document_path = os.path.join(DOCUMENTS_FOLDER, document_name)
+
+        # Load each document
+        document_text = load_document(document_path)
+        if document_text is None:
+            continue  # Skip documents that are empty or not found
+
+        # Split document into chunks
+        chunks = chunk_text(document_text, chunk_size=512)
+        if not chunks:
+            continue  # Skip if no chunks created
+
+        # Embed each chunk
+        embeddings = embed_chunks(chunks)
+        if embeddings.size == 0:
+            continue  # Skip if no embeddings created
+
+        # Add to the global list of chunks and embeddings
+        all_chunks.extend([{"document_name": document_name, "chunk": chunk} for chunk in chunks])
+        all_embeddings.append(embeddings)
+
+    # Ensure there are embeddings from at least one document
+    if not all_embeddings:
         raise HTTPException(
-            status_code=404, detail=f"Document '{document_name}' not found or empty."
+            status_code=404, detail="No valid documents found or processed."
         )
 
-    # Split document into chunks
-    chunks = chunk_text(document_text, chunk_size=512)
-    if not chunks:
-        raise HTTPException(
-            status_code=400, detail="No valid chunks created from the document."
-        )
-
-    # Embed each chunk
-    embeddings = embed_chunks(chunks)
-    if embeddings.size == 0:
-        raise HTTPException(
-            status_code=400,
-            detail="No valid embeddings created from the document chunks.",
-        )
+    # Stack all embeddings
+    all_embeddings = np.vstack(all_embeddings)
 
     # Create FAISS index for similarity search
     try:
-        index = create_faiss_index(embeddings)
+        index = create_faiss_index(all_embeddings)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 
-    # Query embedding for user query
+    # Query embedding for the user query
     query_embedding = model.encode([user_query])
     if query_embedding.size == 0:
         raise HTTPException(status_code=400, detail="Failed to encode query.")
@@ -104,12 +112,9 @@ async def process_document(request: DocumentQueryRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
     # Retrieve the top matching chunks
-    result_chunks = [
-        {"document_name": document_name, "chunk": chunks[idx]} for idx in result_indices
-    ]
+    result_chunks = [all_chunks[idx] for idx in result_indices]
 
     # Send the document chunks and user query to the RAG LLM API
     generated_answer = send_to_rag_api(result_chunks, user_query)
-
 
     return {"generated_answer": generated_answer}
