@@ -9,6 +9,8 @@ from indexing import create_faiss_index, query_index
 from sentence_transformers import SentenceTransformer
 from rag_request import send_to_rag_api
 import numpy as np
+from process_document import process_document
+import uvicorn
 
 # Load the pre-trained embedding model for query embedding
 model = SentenceTransformer("all-MiniLM-L6-v2")
@@ -34,19 +36,6 @@ class DocumentQueryRequest(BaseModel):
     user_query: str  # Query for searching the documents
 
 
-# Function to load the document
-def load_document(file_path):
-    print(f"1. Attempting to load document with file path: {file_path}")
-    try:
-        with open(file_path, "r", encoding="utf-8") as file:
-            content = file.read()
-            if not content.strip():  # Check for empty or whitespace content
-                return None
-            return content
-    except FileNotFoundError:
-        return None
-
-
 # FastAPI POST endpoint to process all documents and query
 @app.post("/process_documents/")
 async def process_documents(request: DocumentQueryRequest):
@@ -54,9 +43,7 @@ async def process_documents(request: DocumentQueryRequest):
     user_query = request.user_query
 
     if not user_query:
-        raise HTTPException(
-            status_code=400, detail="User query must be provided."
-        )
+        raise HTTPException(status_code=400, detail="User query must be provided.")
 
     # Initialize storage for document chunks and embeddings
     all_chunks = []
@@ -67,7 +54,7 @@ async def process_documents(request: DocumentQueryRequest):
         document_path = os.path.join(DOCUMENTS_FOLDER, document_name)
 
         # Load each document
-        document_text = load_document(document_path)
+        document_text = process_document(document_path)
         if document_text is None:
             continue  # Skip documents that are empty or not found
 
@@ -82,7 +69,9 @@ async def process_documents(request: DocumentQueryRequest):
             continue  # Skip if no embeddings created
 
         # Add to the global list of chunks and embeddings
-        all_chunks.extend([{"document_name": document_name, "chunk": chunk} for chunk in chunks])
+        all_chunks.extend(
+            [{"document_name": document_name, "chunk": chunk} for chunk in chunks]
+        )
         all_embeddings.append(embeddings)
 
     # Ensure there are embeddings from at least one document
@@ -118,3 +107,8 @@ async def process_documents(request: DocumentQueryRequest):
     generated_answer = send_to_rag_api(result_chunks, user_query)
 
     return {"generated_answer": generated_answer}
+
+
+# Add uvicorn startup code
+if __name__ == "__main__":
+    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
