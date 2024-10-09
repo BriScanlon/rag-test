@@ -1,4 +1,6 @@
 import requests
+from fastapi import HTTPException
+
 
 # Function to send chunks to the RAG LLM API
 def send_to_rag_api(document_chunks, user_query):
