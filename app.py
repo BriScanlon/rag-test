@@ -1,4 +1,4 @@
-# app.py
+# © 2024 Brian Scanlon. All rights reserved.
 import os
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware

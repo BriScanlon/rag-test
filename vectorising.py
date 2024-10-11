@@ -1,4 +1,5 @@
 # vectorization.py
+# © 2024 Brian Scanlon. All rights reserved.
 
 from sentence_transformers import SentenceTransformer
 import numpy as np

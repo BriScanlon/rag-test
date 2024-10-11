@@ -1,4 +1,4 @@
-// src/App.jsx
+// © 2024 Brian Scanlon. All rights reserved.
 
 import { useState } from 'react';
 import axios from 'axios';

@@ -1,3 +1,5 @@
+# © 2024 Brian Scanlon. All rights reserved.
+
 import requests
 from fastapi import HTTPException
 

@@ -1,4 +1,4 @@
-# chunking.py
+# © 2024 Brian Scanlon. All rights reserved.
 
 def chunk_text(text, chunk_size=512):
     """Splits text into chunks of specified size."""

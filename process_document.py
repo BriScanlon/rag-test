@@ -1,3 +1,5 @@
+# © 2024 Brian Scanlon. All rights reserved.
+
 import os
 import fitz  # PyMuPDF for PDF handling
 import docx  # python-docx for DOCX handling

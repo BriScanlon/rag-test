@@ -1,4 +1,4 @@
-# indexing.py
+# © 2024 Brian Scanlon. All rights reserved.
 
 import faiss
 import numpy as np
