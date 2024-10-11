@@ -7,7 +7,7 @@ import './App.css';
 function App() {
   const [userQuery, setUserQuery] = useState(''); // State to hold the user query
   const [loading, setLoading] = useState(false);  // State to show loading spinner
-  const [result, setResult] = useState('');       // State to store the result
+  const [result, setResult] = useState([]);       // State to store the result as an array of paragraphs
   const [error, setError] = useState(null);       // State to handle any errors
 
   // Function to handle form submission
@@ -15,7 +15,7 @@ function App() {
     event.preventDefault();
     setLoading(true);  // Show loading spinner
     setError(null);    // Reset error state
-    setResult('');     // Clear previous result
+    setResult([]);     // Clear previous result
 
     try {
       const response = await axios.post('http://localhost:8000/process_documents/', {
@@ -23,7 +23,12 @@ function App() {
         user_query: userQuery,
       });
 
-      setResult(response.data.generated_answer?.response);
+      // Format the response into numbered paragraphs
+      const formattedResult = response.data.generated_answer?.response
+        .split('\n\n') // Split by double newlines (assuming paragraphs are separated by this)
+        .map((paragraph, index) => `${paragraph}`); // Add numbering
+
+      setResult(formattedResult);
     } catch (err) {
       setError('Failed to fetch result from the server');
     } finally {
@@ -44,17 +49,19 @@ function App() {
           onChange={(e) => setUserQuery(e.target.value)}
           required
         />
-        <button type="submit">Submit</button>
+        <button disabled={loading} type="submit">Submit</button>
       </form>
 
       {/* Display Loading Spinner */}
       {loading && <div className="loader"></div>}
 
       {/* Display Result */}
-      {result && (
+      {result.length > 0 && (
         <div className="result">
           <h2>Answer:</h2>
-          <p>{result}</p>
+          {result.map((paragraph, index) => (
+            <p key={index}>{paragraph}</p>
+          ))}
         </div>
       )}
 
