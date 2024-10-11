@@ -2,7 +2,12 @@
 
 import { useState } from 'react';
 import axios from 'axios';
+
+// styles
 import './App.css';
+
+// components
+import ForceNodeGraph from './components/ForceNodeGraph';
 
 function App() {
   const [userQuery, setUserQuery] = useState(''); // State to hold the user query
@@ -57,12 +62,15 @@ function App() {
 
       {/* Display Result */}
       {result.length > 0 && (
-        <div className="result">
-          <h2>Answer:</h2>
-          {result.map((paragraph, index) => (
-            <p key={index}>{paragraph}</p>
-          ))}
-        </div>
+        <>
+          <div className="result">
+            <h2>Answer:</h2>
+            {result.map((paragraph, index) => (
+              <p key={index}>{paragraph}</p>
+            ))}
+          </div>
+          <ForceNodeGraph />
+        </>
       )}
 
       {/* Display Error Message */}
