@@ -24,7 +24,6 @@ function App() {
 
     try {
       const response = await axios.post('http://localhost:8000/process_documents/', {
-        document_name: 'example.txt',  // Replace with actual document name
         user_query: userQuery,
       });
 

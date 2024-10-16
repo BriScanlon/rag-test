@@ -12,7 +12,7 @@ def create_faiss_index(embeddings):
     index.add(np.array(embeddings))
     return index
 
-def query_index(index, query_embedding, top_k=6):
+def query_index(index, query_embedding, top_k=10):
     """Queries the FAISS index to find top_k similar embeddings."""
     if query_embedding.size == 0:  # Check if query embedding is empty
         raise ValueError("Failed to encode query.")
