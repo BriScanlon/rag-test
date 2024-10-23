@@ -30,7 +30,7 @@ function App() {
       // Format the response into numbered paragraphs
       const formattedResult = response.data.generated_answer?.response
         .split('\n\n') // Split by double newlines (assuming paragraphs are separated by this)
-        .map((paragraph, index) => `${paragraph}`); // Add numbering
+        .map((paragraph, index) => `${paragraph}`);
 
       setResult(formattedResult);
     } catch (err) {
