@@ -2,61 +2,92 @@ import React, { useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 
 const ForceNodeGraph = () => {
-  // Define the nodes and links for the force graph
-  const nodes = [
-    { id: 'ex:clinical_pharmacist', name: 'Clinical Pharmacist' },
-    { id: 'ex:patient_care_units', name: 'Patient Care Units' },
-    { id: 'ex:improvement_efforts', name: 'Improvement Efforts' },
-    { id: 'ex:twice-daily_pickups', name: 'Twice-Daily Pickups' },
-    { id: 'ex:discontinued_medications', name: 'Discontinued Medications' },
-    { id: 'ex:verification_screen', name: 'Verification Screen' },
-    { id: 'ex:patient_specific_unit_doses', name: 'Patient-Specific Unit Doses' },
-    { id: 'ex:barcode_scanning', name: 'Barcode Scanning' },
-    { id: 'ex:patient_verification', name: 'Patient Verification' },
-    { id: 'ex:single-unit_doses', name: 'Single-Unit Doses' },
-    { id: 'ex:multi-dose_vials', name: 'Multi-Dose Vials' }
-  ];
-
-  const links = [
-    { source: 'ex:clinical_pharmacist', target: 'ex:patient_care_units', relationship: 'assignedTo' },
-    { source: 'ex:clinical_pharmacist', target: 'ex:improvement_efforts', relationship: 'plannedBy' },
-    { source: 'ex:clinical_pharmacist', target: 'ex:twice-daily_pickups', relationship: 'scheduledBy' },
-    { source: 'ex:twice-daily_pickups', target: 'ex:discontinued_medications', relationship: 'forDiscontinuedMedications' },
-    { source: 'ex:verification_screen', target: 'ex:clinical_pharmacist', relationship: 'usedFor' },
-    { source: 'ex:patient_specific_unit_doses', target: 'ex:pharmacy', relationship: 'preparedBy' },
-    { source: 'ex:patient_specific_unit_doses', target: 'ex:multi-dose_vials', relationship: 'replacesMultiDoseVials' },
-    { source: 'ex:barcode_scanning', target: 'ex:clinical_pharmacist', relationship: 'usedFor' },
-    { source: 'ex:barcode_scanning', target: 'ex:patient_verification', relationship: 'involves' },
-    { source: 'ex:single-unit_doses', target: 'ex:pharmacy', relationship: 'preparedBy' },
-    { source: 'ex:single-unit_doses', target: 'ex:multi-dose_vials', relationship: 'replacesMultiDoseVials' }
-  ];
-
-  // Convert the nodes into the format required by ECharts
-  const formattedNodes = nodes.map((node) => ({
-    name: node.name,
-    id: node.id,
-    symbolSize: 50 // Adjust the size of the nodes
-  }));
-
-  // Convert the links into the format required by ECharts
-  const formattedLinks = links.map((link) => ({
-    source: link.source,
-    target: link.target,
-    label: {
-      show: true,
-      formatter: link.relationship,
-    }
-  }));
+  // Define the nodes and links for the graph using the provided data
+  const data = {
+    "nodes": [
+      { "name": "Party", "category": "People" },
+      { "name": "Crystal Caverns", "category": "Location" },
+      { "name": "Sunken Ruins of Eldoria", "category": "Location" },
+      { "name": "Fire Peaks", "category": "Location" },
+      { "name": "Central Convergence Point", "category": "Location" },
+      { "name": "Cultists", "category": "People" },
+      { "name": "Verdant Circle", "category": "Group" },
+      { "name": "Elder Branwyn", "category": "Person" },
+      { "name": "Kit’s Sending Stone", "category": "Item" },
+      { "name": "Whispering Wood", "category": "Location" },
+      { "name": "Mistress Sable", "category": "Person" },
+      { "name": "Nighthaven", "category": "Location" },
+      { "name": "Heart of the Verdant Plains", "category": "Location" },
+      { "name": "Ruins of the Old Capitol", "category": "Location" },
+      { "name": "Azure Bay", "category": "Location" },
+      { "name": "Miners", "category": "People" },
+      { "name": "Magical Beasts", "category": "Creatures" },
+      { "name": "Pylon", "category": "Item" },
+      { "name": "Sewer Beasts", "category": "Creatures" },
+      { "name": "Sewers", "category": "Location" },
+      { "name": "Hidden Chamber", "category": "Location" },
+      { "name": "Cultist Leaders", "category": "People" },
+      { "name": "Unique Cult Leaders", "category": "People" }
+    ],
+    "links": [
+      { "source": "Party", "target": "Crystal Caverns", "relationship": "Investigates" },
+      { "source": "Party", "target": "Sunken Ruins of Eldoria", "relationship": "Investigates" },
+      { "source": "Party", "target": "Fire Peaks", "relationship": "Investigates" },
+      { "source": "Party", "target": "Cultist Leaders", "relationship": "Confronts" },
+      { "source": "Party", "target": "Pylon", "relationship": "Deactivates" },
+      { "source": "Party", "target": "Central Convergence Point", "relationship": "Secures" },
+      { "source": "Party", "target": "Sewer Beasts", "relationship": "Fights" },
+      { "source": "Party", "target": "Sewers", "relationship": "Navigates" },
+      { "source": "Party", "target": "Mistress Sable", "relationship": "Follows directions from" },
+      { "source": "Party", "target": "Cultist Patrols", "relationship": "Faces off against" },
+      { "source": "Party", "target": "Unique Cult Leaders", "relationship": "Faces off against" },
+      { "source": "Party", "target": "Miners", "relationship": "Enlists help from" },
+      { "source": "Party", "target": "Magical Beasts", "relationship": "Enlists help from" },
+      { "source": "Verdant Circle", "target": "Whispering Wood", "relationship": "Guards" },
+      { "source": "Verdant Circle", "target": "Heart of the Verdant Plains", "relationship": "Protects" },
+      { "source": "Verdant Circle", "target": "Kit’s Sending Stone", "relationship": "Provides guidance via" },
+      { "source": "Mistress Sable", "target": "Nighthaven", "relationship": "Provides intelligence for" },
+      { "source": "Mistress Sable", "target": "Central Convergence Point", "relationship": "Coordinates search for" },
+      { "source": "Cultists", "target": "Obelisks", "relationship": "Guard" },
+      { "source": "Cultist Patrols", "target": "Obelisk Locations", "relationship": "Found at" },
+      { "source": "Hidden Chamber", "target": "Pylon", "relationship": "Contains" },
+      { "source": "Heart of the Verdant Plains", "target": "Central Convergence Point", "relationship": "Potential location for" },
+      { "source": "Ruins of the Old Capitol", "target": "Central Convergence Point", "relationship": "Potential location for" },
+      { "source": "Azure Bay", "target": "Central Convergence Point", "relationship": "Potential location for" },
+      { "source": "Elder Branwyn", "target": "Verdant Circle", "relationship": "Leads" }
+    ]
+  };
 
   // ECharts options configuration
   const getOption = () => {
     return {
       tooltip: {},
+      legend: [{
+        data: ['People', 'Group', 'Location', 'Item', 'Creatures']
+      }],
       series: [{
         type: 'graph',
         layout: 'force',
-        data: formattedNodes,
-        links: formattedLinks,
+        categories: [
+          { name: 'People' },
+          { name: 'Group' },
+          { name: 'Location' },
+          { name: 'Item' },
+          { name: 'Creatures' }
+        ],
+        data: data.nodes.map(node => ({
+          name: node.name,
+          category: node.category,
+          symbolSize: 50
+        })),
+        links: data.links.map(link => ({
+          source: link.source,
+          target: link.target,
+          label: {
+            show: true,
+            formatter: link.relationship,
+          }
+        })),
         roam: true,
         label: {
           show: true,

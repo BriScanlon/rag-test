@@ -29,9 +29,6 @@ function App() {
 
       // Format the response into numbered paragraphs
       const formattedResult = response.data.generated_answer?.response
-        .split('\n\n') // Split by double newlines (assuming paragraphs are separated by this)
-        .map((paragraph, index) => `${paragraph}`);
-
       setResult(formattedResult);
     } catch (err) {
       setError('Failed to fetch result from the server');
@@ -64,9 +61,7 @@ function App() {
         <>
           <div className="result">
             <h2>Answer:</h2>
-            {result.map((paragraph, index) => (
-              <p key={index}>{paragraph}</p>
-            ))}
+            {result}
           </div>
           <ForceNodeGraph />
         </>
