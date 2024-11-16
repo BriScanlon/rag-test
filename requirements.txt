@@ -1,7 +1,11 @@
+numpy==1.26.4
 transformers==4.33.1
 sentence-transformers==2.2.2
+swig
 faiss-cpu==1.7.3
 uvicorn
 fastapi
 python-docx
 PyMuPDF
+huggingface_hub==0.15.1
+spacy
