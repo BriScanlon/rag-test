@@ -1,8 +1,5 @@
-# © 2024 Brian Scanlon. All rights reserved.
-
 import requests
 from fastapi import HTTPException
-
 
 # Function to send chunks to the RAG LLM API
 def send_to_rag_api(document_chunks, user_query):
@@ -21,6 +18,10 @@ def send_to_rag_api(document_chunks, user_query):
     print(f"Response from LLM: {response.json()}")
 
     if response.status_code == 200:
-        return response.json()  # Return the generated answer
+        result = response.json()
+        # Clean ticks from the response
+        if result.get("response"):
+            result["response"] = result["response"].strip("```")
+        return result  # Return the generated answer without backticks
     else:
         raise HTTPException(status_code=500, detail="Failed to connect to RAG API")

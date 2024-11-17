@@ -1,4 +1,3 @@
-# © 2024 Brian Scanlon. All rights reserved.
 import os
 import logging
 from fastapi import FastAPI, HTTPException
@@ -129,6 +128,11 @@ async def process_documents(request: DocumentQueryRequest):
     # Send the document chunks and user query to the RAG LLM API
     logging.debug("Sending data to RAG API.")
     generated_answer = send_to_rag_api(result_chunks, user_query)
+
+    # Clean up ticks in the response
+    if generated_answer and generated_answer.get("response"):
+        cleaned_response = generated_answer["response"].strip("```")  # Remove ticks
+        generated_answer["response"] = cleaned_response
 
     logging.debug("Process completed successfully.")
     return {"generated_answer": generated_answer}

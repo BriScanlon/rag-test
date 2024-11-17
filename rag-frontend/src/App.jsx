@@ -1,6 +1,6 @@
 import { useReducer, useState } from 'react';
 import axios from 'axios';
-import logHelper from './helpers/loglevel';  // Import the log helper
+import logHelper from './helpers/loglevel'; // Import the log helper
 
 // styles
 import './App.css';
@@ -31,17 +31,6 @@ const reducer = (state, action) => {
   }
 };
 
-// Utility function to clean response
-function cleanResponse(response) {
-  let formattedResult = response?.data?.generated_answer?.response;
-  if (formattedResult && formattedResult.startsWith('```') && formattedResult.endsWith('```')) {
-    formattedResult = formattedResult.slice(3, -3);
-  }
-  formattedResult = formattedResult.replace(/\\(n|t|')/g, ''); // Clean up escape sequences
-  formattedResult = formattedResult.replace(/\\"/g, '"');
-  return formattedResult;
-}
-
 function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
 
@@ -62,8 +51,17 @@ function App() {
 
       logHelper.info('Response:', response);
 
-      // Clean up and parse the response
-      let formattedResult = cleanResponse(response);
+      let formattedResult = response?.data?.generated_answer?.response;
+
+      // Check if the response is wrapped in backticks and remove them
+      if (formattedResult && formattedResult.startsWith('```') && formattedResult.endsWith('```')) {
+        formattedResult = formattedResult.slice(3, -3); // Remove the backticks and leading/trailing whitespace
+      }
+
+      formattedResult = formattedResult.replace(/\\'/g, "'"); // Fix escaped single quotes
+      formattedResult = formattedResult.replace(/\\"/g, '"'); // Fix escaped double quotes
+      formattedResult = formattedResult.replace(/\\n/g, ''); // Remove newline escape sequences
+      formattedResult = formattedResult.replace(/\\t/g, ''); // Remove tab escape sequences
 
       logHelper.debug('Cleaned Response:', formattedResult);
 
@@ -79,7 +77,7 @@ function App() {
           type: 'SET_RESULT',
           payload: {
             nodes: parsedResult.nodes,
-            links: parsedResult.edges,  // Remap edges to links for consistency
+            links: parsedResult.edges, // Remap edges to links for consistency
           },
         });
       } else {
@@ -93,46 +91,55 @@ function App() {
 
   return (
     <div className="App">
-      <div className="pageLayout">
-        {/* Display Result */}
-        {state.result && state.result.nodes && state.result.links && (
-          <>
-            <div className="result">
-              <h2>Answer:</h2>
-              <ForceNodeGraph data2={state.result} />
-            </div>
-          </>
-        )}
+      <div className="layout-container">
+        {/* Navbar */}
+        <div className="navbar">
+          <p>Navbar</p>
+        </div>
 
-        {/* Query Input Form */}
-        <form onSubmit={handleSubmit}>
+        <div className="main-content">
+          {/* Graph Output */}
+          <div className="graph-output">
+            {state.result && state.result.nodes && state.result.links && (
+              <>
+                <h2>Graph Output:</h2>
+                <ForceNodeGraph data2={state.result} />
+              </>
+            )}
+          </div>
+
+          {/* Stream Output */}
+          <div className="stream-output">
+            <h2>Stream output from LLM response</h2>
+            {/* Placeholder content for streaming */}
+            <p>Streamed data will appear here.</p>
+          </div>
+        </div>
+
+        {/* Text input and submit button */}
+        <div className="input-container">
           <textarea
             placeholder="Enter your query"
             value={state.userQuery}
             onChange={(e) => dispatch({ type: 'SET_USER_QUERY', payload: e.target.value })}
             required
             rows={5}
-            cols={40}
+            cols={50}
             style={{
               resize: 'both',
               width: '100%',
               minHeight: '100px',
-              maxHeight: '400px',
               padding: '10px',
               borderRadius: '4px',
               border: '1px solid #ccc',
             }}
           />
-          <button disabled={state.loading} type="submit">
-            {state.loading ? 'Loading...' : 'Submit'}
-          </button>
-        </form>
-
-        {/* Display Loading Spinner */}
-        {state.loading && <div className="loader"></div>}
-
-        {/* Display Error Message */}
-        {state.error && <div className="error">{state.error}</div>}
+          <div className="submit-button-container">
+            <button disabled={state.loading} type="submit" onClick={handleSubmit}>
+              {state.loading ? 'Loading...' : 'Submit'}
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   );
