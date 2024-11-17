@@ -1,72 +1,151 @@
-// © 2024 Brian Scanlon. All rights reserved.
-
-import { useState } from 'react';
+import { useReducer, useState } from 'react';
 import axios from 'axios';
+import logHelper from './helpers/loglevel'; // Import the log helper
+
+// styles
 import './App.css';
 
-function App() {
-  const [userQuery, setUserQuery] = useState(''); // State to hold the user query
-  const [loading, setLoading] = useState(false);  // State to show loading spinner
-  const [result, setResult] = useState([]);       // State to store the result as an array of paragraphs
-  const [error, setError] = useState(null);       // State to handle any errors
+// components
+import ForceNodeGraph from './components/ForceNodeGraph';
 
-  // Function to handle form submission
+// Reducer for state management
+const initialState = {
+  userQuery: '',
+  loading: false,
+  result: null,
+  error: null,
+};
+
+const reducer = (state, action) => {
+  switch (action.type) {
+    case 'SET_LOADING':
+      return { ...state, loading: true };
+    case 'SET_RESULT':
+      return { ...state, result: action.payload, loading: false };
+    case 'SET_ERROR':
+      return { ...state, error: action.payload, loading: false };
+    case 'SET_USER_QUERY':
+      return { ...state, userQuery: action.payload };
+    default:
+      return state;
+  }
+};
+
+function App() {
+  const [state, dispatch] = useReducer(reducer, initialState);
+
   const handleSubmit = async (event) => {
     event.preventDefault();
-    setLoading(true);  // Show loading spinner
-    setError(null);    // Reset error state
-    setResult([]);     // Clear previous result
+
+    if (!state.userQuery.trim()) {
+      dispatch({ type: 'SET_ERROR', payload: 'Please enter a valid query.' });
+      return;
+    }
+
+    dispatch({ type: 'SET_LOADING' });
 
     try {
       const response = await axios.post('http://localhost:8000/process_documents/', {
-        document_name: 'example.txt',  // Replace with actual document name
-        user_query: userQuery,
+        user_query: state.userQuery,
       });
 
-      // Format the response into numbered paragraphs
-      const formattedResult = response.data.generated_answer?.response
-        .split('\n\n') // Split by double newlines (assuming paragraphs are separated by this)
-        .map((paragraph, index) => `${paragraph}`); // Add numbering
+      logHelper.info('Response:', response);
 
-      setResult(formattedResult);
+      let formattedResult = response?.data?.generated_answer?.response;
+
+      // Check if the response is wrapped in backticks and remove them
+      if (formattedResult && formattedResult.startsWith('```') && formattedResult.endsWith('```')) {
+        formattedResult = formattedResult.slice(3, -3); // Remove the backticks and leading/trailing whitespace
+      }
+
+      formattedResult = formattedResult.replace(/\\'/g, "'"); // Fix escaped single quotes
+      formattedResult = formattedResult.replace(/\\"/g, '"'); // Fix escaped double quotes
+      formattedResult = formattedResult.replace(/\\n/g, ''); // Remove newline escape sequences
+      formattedResult = formattedResult.replace(/\\t/g, ''); // Remove tab escape sequences
+
+      logHelper.debug('Cleaned Response:', formattedResult);
+
+      // Parse the cleaned-up string into a valid JSON object
+      const parsedResult = JSON.parse(formattedResult);
+
+      logHelper.debug('Parsed Result:', parsedResult);
+
+      // Map node IDs to actual IDs and prepare the links
+      if (parsedResult && parsedResult.nodes && parsedResult.links) {
+        const nodesMap = new Map();
+        parsedResult.nodes.forEach(node => {
+          nodesMap.set(node.id, node);
+        });
+
+        // Map links to the actual node names
+        const links = parsedResult.links.map(link => {
+          return {
+            source: nodesMap.get(link.source_id)?.name,
+            target: nodesMap.get(link.target_id)?.name,
+            relation: link.relation,
+          };
+        });
+
+        dispatch({ type: 'SET_RESULT', payload: { nodes: parsedResult.nodes, links } });
+      } else {
+        dispatch({ type: 'SET_ERROR', payload: 'The response format is incorrect or missing nodes/links.' });
+      }
     } catch (err) {
-      setError('Failed to fetch result from the server');
-    } finally {
-      setLoading(false);  // Hide loading spinner
+      logHelper.error('Error fetching data: ', err);
+      dispatch({ type: 'SET_ERROR', payload: 'Failed to fetch result from the server' });
     }
   };
 
   return (
     <div className="App">
-      <h1>Document Query System</h1>
-
-      {/* Query Input Form */}
-      <form onSubmit={handleSubmit}>
-        <input
-          type="text"
-          placeholder="Enter your query"
-          value={userQuery}
-          onChange={(e) => setUserQuery(e.target.value)}
-          required
-        />
-        <button disabled={loading} type="submit">Submit</button>
-      </form>
-
-      {/* Display Loading Spinner */}
-      {loading && <div className="loader"></div>}
-
-      {/* Display Result */}
-      {result.length > 0 && (
-        <div className="result">
-          <h2>Answer:</h2>
-          {result.map((paragraph, index) => (
-            <p key={index}>{paragraph}</p>
-          ))}
+      <div className="layout-container">
+        {/* Navbar */}
+        <div className="navbar">
+          <p>Navbar</p>
         </div>
-      )}
 
-      {/* Display Error Message */}
-      {error && <div className="error">{error}</div>}
+        <div className="main-content">
+          {/* Graph Output */}
+          <div className="graph-output">
+            {state.result && state.result.nodes && state.result.links && (
+              <>
+                <ForceNodeGraph data2={state.result} />
+              </>
+            )}
+          </div>
+
+          {/* Stream Output */}
+          <div className="stream-output">
+            <h2>Stream output from LLM response</h2>
+            <p>Streamed data will appear here.</p>
+          </div>
+        </div>
+
+        {/* Text input and submit button */}
+        <div className="input-container">
+          <textarea
+            placeholder="Enter your query"
+            value={state.userQuery}
+            onChange={(e) => dispatch({ type: 'SET_USER_QUERY', payload: e.target.value })}
+            required
+            rows={5}
+            cols={50}
+            style={{
+              resize: 'both',
+              width: '100%',
+              minHeight: '100px',
+              padding: '10px',
+              borderRadius: '4px',
+              border: '1px solid #ccc',
+            }}
+          />
+          <div className="submit-button-container">
+            <button disabled={state.loading} type="submit" onClick={handleSubmit}>
+              {state.loading ? 'Loading...' : 'Submit'}
+            </button>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
