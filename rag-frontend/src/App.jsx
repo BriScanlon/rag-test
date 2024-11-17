@@ -70,16 +70,23 @@ function App() {
 
       logHelper.debug('Parsed Result:', parsedResult);
 
+      // Map node IDs to actual IDs and prepare the links
       if (parsedResult && parsedResult.nodes && parsedResult.links) {
-        dispatch({ type: 'SET_RESULT', payload: parsedResult });
-      } else if (parsedResult && parsedResult.nodes && parsedResult.edges) {
-        dispatch({
-          type: 'SET_RESULT',
-          payload: {
-            nodes: parsedResult.nodes,
-            links: parsedResult.edges, // Remap edges to links for consistency
-          },
+        const nodesMap = new Map();
+        parsedResult.nodes.forEach(node => {
+          nodesMap.set(node.id, node);
         });
+
+        // Map links to the actual node names
+        const links = parsedResult.links.map(link => {
+          return {
+            source: nodesMap.get(link.source_id)?.name,
+            target: nodesMap.get(link.target_id)?.name,
+            relation: link.relation,
+          };
+        });
+
+        dispatch({ type: 'SET_RESULT', payload: { nodes: parsedResult.nodes, links } });
       } else {
         dispatch({ type: 'SET_ERROR', payload: 'The response format is incorrect or missing nodes/links.' });
       }
@@ -102,7 +109,6 @@ function App() {
           <div className="graph-output">
             {state.result && state.result.nodes && state.result.links && (
               <>
-                <h2>Graph Output:</h2>
                 <ForceNodeGraph data2={state.result} />
               </>
             )}
@@ -111,7 +117,6 @@ function App() {
           {/* Stream Output */}
           <div className="stream-output">
             <h2>Stream output from LLM response</h2>
-            {/* Placeholder content for streaming */}
             <p>Streamed data will appear here.</p>
           </div>
         </div>

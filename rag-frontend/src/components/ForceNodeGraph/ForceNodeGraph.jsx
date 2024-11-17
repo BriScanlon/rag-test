@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import ReactECharts from 'echarts-for-react';
 
 const ForceNodeGraph = ({ data2 }) => {
@@ -21,7 +21,7 @@ const ForceNodeGraph = ({ data2 }) => {
         layout: 'force',
         categories: categories.map(category => ({ name: category })),
         data: data2.nodes.map(node => ({
-          name: node.id,
+          name: node.name,
           category: node.category,
           symbolSize: 50,
         })),
@@ -30,7 +30,7 @@ const ForceNodeGraph = ({ data2 }) => {
           target: link.target,
           label: {
             show: true,
-            formatter: link.category,
+            formatter: link.relation,
           },
         })),
         roam: true,
@@ -47,23 +47,17 @@ const ForceNodeGraph = ({ data2 }) => {
           color: 'source',
           curveness: 0.3,
         },
-        edgeLabel: {
-          show: true,
-          formatter: function (params) {
-            return params.data.label.formatter;
-          },
-        },
       }],
     };
   };
 
   return (
-    <div>
-      <ReactECharts
-        option={getOption()}
-        style={{ height: '1000px', width: '1200px' }}
-      />
-    </div>
+
+    <ReactECharts
+      option={getOption()}
+      style={{ height: '100%', width: '100%' }}
+    />
+
   );
 };
 

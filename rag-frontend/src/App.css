@@ -24,15 +24,28 @@
   gap: 20px;
 }
 
-.graph-output {
-  flex: 2;
-  padding: 20px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
+/* In your index.css or App.css */
+body {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  height: 100vh; /* Ensure full viewport height */
+  overflow: hidden; /* Prevent scrolling */
 }
+
+.graph-output {
+  height: 100%;
+  width: 100%; /* Ensure it takes the full available height of its parent container */
+  overflow: hidden; /* Prevent scrolling */
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
 
 .stream-output {
   flex: 1;
+  min-width: 45rem;
   padding: 20px;
   border: 1px solid #ddd;
   border-radius: 4px;
@@ -40,10 +53,11 @@
 
 .input-container {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   padding: 20px;
   background-color: #f9f9f9;
   border-top: 1px solid #ddd;
+  gap: 1rem;
 }
 
 textarea {
@@ -54,8 +68,8 @@ button {
   width: 100px;
   padding: 10px;
   background-color: #4CAF50;
-  color: white;
-  border: none;
+  color: grey;
+  border: 2px solid black;
   border-radius: 4px;
   cursor: pointer;
 }
