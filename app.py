@@ -46,6 +46,42 @@ class DocumentQueryRequest(BaseModel):
     user_query: str  # Query for searching the documents
 
 
+# Utility function to merge duplicate nodes and update links
+def merge_duplicates(nodes, links):
+    # Mapping for node name to merged node ID
+    node_map = {}
+    node_mapping = {}  # Maps original ID to merged node ID
+    merged_nodes = []
+    new_links = []
+
+    # Merge nodes by name
+    for node in nodes:
+        if node["name"] in node_map:
+            # Merge logic: if duplicate found, merge into one
+            existing_node = node_map[node["name"]]
+            # Combine categories into a single string
+            existing_node["category"] = f"{existing_node['category']}, {node['category']}"
+            # Update node mapping with the new merged ID
+            node_mapping[node["id"]] = existing_node["id"]
+        else:
+            node_map[node["name"]] = node
+            merged_nodes.append(node)
+            node_mapping[node["id"]] = node["id"]
+
+    # Update links to point to the merged node
+    for link in links:
+        new_source_id = node_mapping.get(link["source_id"])
+        new_target_id = node_mapping.get(link["target_id"])
+        if new_source_id and new_target_id:
+            new_links.append({
+                "source_id": new_source_id,
+                "target_id": new_target_id,
+                "relation": link["relation"]
+            })
+
+    return merged_nodes, new_links
+
+
 # FastAPI POST endpoint to process all documents and query
 @app.post("/process_documents/")
 async def process_documents(request: DocumentQueryRequest):
@@ -133,6 +169,19 @@ async def process_documents(request: DocumentQueryRequest):
     if generated_answer and generated_answer.get("response"):
         cleaned_response = generated_answer["response"].strip("```")  # Remove ticks
         generated_answer["response"] = cleaned_response
+
+    logging.debug("2. Response received from RAG API, cleaning up response.")
+    
+    # Merge duplicate nodes and update links
+    logging.debug("Merging duplicate nodes and updating links.")
+    merged_nodes, new_links = merge_duplicates(generated_answer.get("nodes", []), generated_answer.get("links", []))
+
+    logging.debug(f"Merged nodes: {len(merged_nodes)}")
+    logging.debug(f"Updated links: {len(new_links)}")
+
+    # Final response with merged nodes and links
+    generated_answer["nodes"] = merged_nodes
+    generated_answer["links"] = new_links
 
     logging.debug("Process completed successfully.")
     return {"generated_answer": generated_answer}

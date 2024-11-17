@@ -96,6 +96,10 @@ function App() {
     }
   };
 
+  console.log('state.result: ', state?.result && 'true');
+  console.log('state.result.nodes: ', state?.result?.nodes && 'true');
+  console.log('state.result.links: ', state?.result?.links && 'true');
+
   return (
     <div className="App">
       <div className="layout-container">

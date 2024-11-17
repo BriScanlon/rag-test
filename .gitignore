@@ -40,3 +40,4 @@ rag-frontend/*.sw?
 
 rag-frontend/package.lock
 rag-frontend/node_modules
+__pycache__/*
