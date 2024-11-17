@@ -1,12 +1,11 @@
-import { useReducer, useState } from 'react';
+import { useReducer, useState, useEffect } from 'react';
 import axios from 'axios';
 import logHelper from './helpers/loglevel'; // Import the log helper
-
-// styles
 import './App.css';
 
 // components
 import ForceNodeGraph from './components/ForceNodeGraph';
+import TextOutput from './components/TextOutput';  // Import the TextOutput component
 
 // Reducer for state management
 const initialState = {
@@ -14,6 +13,8 @@ const initialState = {
   loading: false,
   result: null,
   error: null,
+  streamData: '',  // New state for handling the streamed data
+  previousResults: '',  // Store previous results
 };
 
 const reducer = (state, action) => {
@@ -26,6 +27,10 @@ const reducer = (state, action) => {
       return { ...state, error: action.payload, loading: false };
     case 'SET_USER_QUERY':
       return { ...state, userQuery: action.payload };
+    case 'SET_STREAM_DATA':
+      return { ...state, streamData: action.payload };  // Update stream data
+    case 'APPEND_TO_RESULTS':
+      return { ...state, previousResults: state.previousResults + action.payload };  // Append new result
     default:
       return state;
   }
@@ -33,7 +38,9 @@ const reducer = (state, action) => {
 
 function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
+  const [streaming, setStreaming] = useState(false); // To track streaming status
 
+  // Function to handle the submission of the user query
   const handleSubmit = async (event) => {
     event.preventDefault();
 
@@ -45,6 +52,7 @@ function App() {
     dispatch({ type: 'SET_LOADING' });
 
     try {
+      // Call the backend API to process the document query
       const response = await axios.post('http://localhost:8000/process_documents/', {
         user_query: state.userQuery,
       });
@@ -87,18 +95,60 @@ function App() {
         });
 
         dispatch({ type: 'SET_RESULT', payload: { nodes: parsedResult.nodes, links } });
+        // Append the non-streaming result to the previous results
+        dispatch({ type: 'APPEND_TO_RESULTS', payload: formattedResult });
       } else {
         dispatch({ type: 'SET_ERROR', payload: 'The response format is incorrect or missing nodes/links.' });
       }
+
+      // Start the streaming of the response data for TextOutput
+      // handleStream();  // Call the stream handler to start receiving real-time data
     } catch (err) {
       logHelper.error('Error fetching data: ', err);
       dispatch({ type: 'SET_ERROR', payload: 'Failed to fetch result from the server' });
     }
   };
 
-  console.log('state.result: ', state?.result && 'true');
-  console.log('state.result.nodes: ', state?.result?.nodes && 'true');
-  console.log('state.result.links: ', state?.result?.links && 'true');
+  // Function to handle the streaming of data from the FastAPI using fetch
+  const handleStream = async () => {
+    try {
+      // Start streaming by setting streaming status to true
+      setStreaming(true);
+
+      const response = await fetch('http://localhost:8000/stream_text_output/', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ user_query: state.userQuery }),
+      });
+
+      if (!response.body) {
+        throw new Error('No response body received.');
+      }
+
+      const reader = response.body.getReader();  // Get the reader from the stream
+      const decoder = new TextDecoder();
+      let done = false;
+      let chunk = '';
+
+      // Read the stream and update the state
+      while (!done) {
+        const { value, done: doneReading } = await reader.read();
+        done = doneReading;
+        chunk += decoder.decode(value, { stream: true });
+
+        // Dispatch the updated stream data
+        dispatch({ type: 'SET_STREAM_DATA', payload: chunk });
+      }
+
+      // Stop streaming when done
+      setStreaming(false);
+    } catch (err) {
+      console.error('Error with streaming data', err);
+      setStreaming(false); // Ensure streaming is stopped if there is an error
+    }
+  };
 
   return (
     <div className="App">
@@ -120,8 +170,9 @@ function App() {
 
           {/* Stream Output */}
           <div className="stream-output">
-            <h2>Stream output from LLM response</h2>
-            <p>Streamed data will appear here.</p>
+            <h2>Stream Output from LLM Response</h2>
+            {/* Use TextOutput to display the streamed data */}
+            <TextOutput data={state.previousResults} />
           </div>
         </div>
 
