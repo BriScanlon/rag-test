@@ -1,11 +1,16 @@
 import { useReducer, useState, useEffect } from 'react';
 import axios from 'axios';
-import logHelper from './helpers/loglevel'; // Import the log helper
+import logHelper from './helpers/loglevel';
 import './App.css';
+import { BrowserRouter as Router, Routes, Route } from 'react-router-dom';
 
 // components
 import ForceNodeGraph from './components/ForceNodeGraph';
-import TextOutput from './components/TextOutput';  // Import the TextOutput component
+import TextOutput from './components/TextOutput';
+import FileUploader from './components/FileUploader';
+import NavBar from './components/NavBar';
+
+
 
 // Reducer for state management
 const initialState = {
@@ -13,8 +18,8 @@ const initialState = {
   loading: false,
   result: null,
   error: null,
-  streamData: '',  // New state for handling the streamed data
-  previousResults: '',  // Store previous results
+  streamData: '',
+  previousResults: '',
 };
 
 const reducer = (state, action) => {
@@ -28,9 +33,8 @@ const reducer = (state, action) => {
     case 'SET_USER_QUERY':
       return { ...state, userQuery: action.payload };
     case 'SET_STREAM_DATA':
-      return { ...state, streamData: action.payload };  // Update stream data
-    case 'APPEND_TO_RESULTS':
-      return { ...state, previousResults: state.previousResults + action.payload };  // Append new result
+      return { ...state, streamData: action.payload };
+      return { ...state, previousResults: state.previousResults + action.payload };
     default:
       return state;
   }
@@ -151,57 +155,82 @@ function App() {
   };
 
   return (
-    <div className="App">
-      <div className="layout-container">
-        {/* Navbar */}
-        <div className="navbar">
-          <p>Navbar</p>
+    <Router>
+      <div className="App">
+        <div className="layout-container">
+          {/* Navbar */}
+          <div className="navbar">
+            <NavBar />
+          </div>
+          <Routes>
+            <Route
+              path="/upload"
+              element={
+                <div className="main-content">
+                  <h2>Upload Documents</h2>
+                  <FileUploader />
+                </div>
+              }
+            />
+            <Route
+              path="/"
+              element={
+                <div className="main-content">
+                  {/* Row for Graph Output and Stream Output */}
+                  <div className="row">
+                    {/* Graph Output */}
+                    <div className="graph-output">
+                      {state.result && state.result.nodes && state.result.links ? (
+                        <ForceNodeGraph data2={state.result} />
+                      ) : (
+                        <p>Graph Output Placeholder</p>
+                      )}
+                    </div>
+
+                    {/* Stream Output */}
+                    <div className="stream-output">
+                      <h2>Stream Output from LLM Response</h2>
+                      <TextOutput data={state.result ? JSON.stringify(state.result) : "Stream output placeholder"} />
+                    </div>
+                  </div>
+
+                  {/* Input Area at the Bottom */}
+                  <div className="input-container">
+                    <textarea
+                      placeholder="Enter your query"
+                      value={state.userQuery}
+                      onChange={(e) => dispatch({ type: 'SET_USER_QUERY', payload: e.target.value })}
+                      required
+                      rows={5}
+                      cols={50}
+                      style={{
+                        resize: 'both',
+                        width: '100%',
+                        minHeight: '100px',
+                        padding: '10px',
+                        borderRadius: '4px',
+                        border: '1px solid #ccc',
+                      }}
+                    />
+                    <div className="submit-button-container">
+                      <button
+                        disabled={state.loading}
+                        type="submit"
+                        onClick={handleSubmit}
+                      >
+                        {state.loading ? 'Loading...' : 'Submit'}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              }
+            />
+
+          </Routes>
         </div>
 
-        <div className="main-content">
-          {/* Graph Output */}
-          <div className="graph-output">
-            {state.result && state.result.nodes && state.result.links && (
-              <>
-                <ForceNodeGraph data2={state.result} />
-              </>
-            )}
-          </div>
-
-          {/* Stream Output */}
-          <div className="stream-output">
-            <h2>Stream Output from LLM Response</h2>
-            {/* Use TextOutput to display the streamed data */}
-            <TextOutput data={state.previousResults} />
-          </div>
-        </div>
-
-        {/* Text input and submit button */}
-        <div className="input-container">
-          <textarea
-            placeholder="Enter your query"
-            value={state.userQuery}
-            onChange={(e) => dispatch({ type: 'SET_USER_QUERY', payload: e.target.value })}
-            required
-            rows={5}
-            cols={50}
-            style={{
-              resize: 'both',
-              width: '100%',
-              minHeight: '100px',
-              padding: '10px',
-              borderRadius: '4px',
-              border: '1px solid #ccc',
-            }}
-          />
-          <div className="submit-button-container">
-            <button disabled={state.loading} type="submit" onClick={handleSubmit}>
-              {state.loading ? 'Loading...' : 'Submit'}
-            </button>
-          </div>
-        </div>
       </div>
-    </div>
+    </Router>
   );
 }
 
