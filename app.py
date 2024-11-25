@@ -310,6 +310,12 @@ async def upload_file(file: UploadFile = File(...)):
         logging.error(f"Error uploading file: {str(e)}")
         raise HTTPException(status_code=500, detail="Error uploading file")
 
+@app.get("/files")
+async def list_files():
+    listed_files = list(files_collection.find())
+    for file in listed_files:
+        file["_id"] = str(file["_id"])
+    return {"files": listed_files}
 
 # Add uvicorn startup code
 if __name__ == "__main__":
