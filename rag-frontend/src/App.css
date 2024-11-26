@@ -48,7 +48,6 @@
 /* Stream Output: Smaller portion of the row */
 .stream-output {
   flex: 1; /* Smaller portion */
-  padding: 20px;
   border: 1px solid #ddd;
   border-radius: 4px;
   overflow: auto; /* Allow scrolling for text output */

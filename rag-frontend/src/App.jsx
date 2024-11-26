@@ -208,7 +208,6 @@ function App() {
 
                     {/* Stream Output */}
                     <div className="stream-output">
-                      <h2>Stream Output from LLM Response</h2>
                       <TextOutput data={state.result ? JSON.stringify(state.result) : "Stream output placeholder"} />
                     </div>
                   </div>

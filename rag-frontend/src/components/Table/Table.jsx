@@ -3,6 +3,14 @@ import React from 'react';
 // styles
 import './Table.css';
 
+
+/**
+ * Table Component
+ * Displays a list of files in a table format with a "Process Document" button for each file.
+ * 
+ * @param {Array} fileList - An array of file objects containing file details such as filename.
+ * @returns {JSX.Element} A table displaying the file list with action buttons.
+ */
 const Table = ({ fileList }) => {
     return (
         <div className="file-table-container">
