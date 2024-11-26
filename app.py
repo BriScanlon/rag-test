@@ -295,11 +295,14 @@ async def upload_file(file: UploadFile = File(...)):
             Body=file.file,
             ContentType=file.content_type,
         )
+        
+        fileURL = f"http://192.168.4.218:9000/{bucket_name}/{file.filename}"
 
         # Save metadata in MongoDB
         file_metadata = {
             "filename": file.filename,
             "upload_timestamp": datetime.utcnow(),
+            "fileURL": fileURL
         }
         files_collection.insert_one(file_metadata)
 

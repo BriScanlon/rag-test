@@ -9,6 +9,8 @@ import ForceNodeGraph from './components/ForceNodeGraph';
 import TextOutput from './components/TextOutput';
 import FileUploader from './components/FileUploader';
 import NavBar from './components/NavBar';
+import { log } from 'loglevel';
+import Table from './components/Table/Table';
 
 
 
@@ -42,7 +44,20 @@ const reducer = (state, action) => {
 
 function App() {
   const [state, dispatch] = useReducer(reducer, initialState);
-  const [streaming, setStreaming] = useState(false); // To track streaming status
+  const [streaming, setStreaming] = useState(false);
+  const [fileList, setFileList] = useState([]);
+
+  // function to call the list of files from the backend
+  const handleGetFiles = async () => {
+    try {
+      const response = await axios.get('http://localhost:8000/files');
+      const responseJson = response.data;
+      setFileList(responseJson?.files);
+      console.log(JSON.stringify(fileList));
+    } catch (err) {
+      logHelper.error('Error fetching data: ', err);
+    }
+  }
 
   // Function to handle the submission of the user query
   const handleSubmit = async (event) => {
@@ -154,6 +169,10 @@ function App() {
     }
   };
 
+  useEffect(() => {
+    handleGetFiles();
+  }, [])
+
   return (
     <Router>
       <div className="App">
@@ -222,6 +241,14 @@ function App() {
                       </button>
                     </div>
                   </div>
+                </div>
+              }
+            />
+            <Route
+              path="/files"
+              element={
+                <div className="main-content">
+                  <Table fileList={fileList} />
                 </div>
               }
             />

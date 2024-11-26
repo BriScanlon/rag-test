@@ -10,6 +10,9 @@ const NavBar = () => {
             <NavLink to="/upload" style={({ isActive }) => ({ color: isActive ? 'yellow' : 'white' })}>
                 Upload
             </NavLink>
+            <NavLink to="/files" style={({ isActive }) => ({ color: isActive ? 'yellow' : 'white' })}>
+                Files
+            </NavLink>
         </nav>
     );
 };
