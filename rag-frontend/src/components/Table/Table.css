@@ -1,0 +1,39 @@
+.file-table-container {
+    margin: 20px auto;
+    max-width: 80%;
+    overflow-x: auto;
+  }
+  
+  .file-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  
+  .file-table th,
+  .file-table td {
+    padding: 10px;
+    border: 1px solid #ddd;
+    text-align: left;
+  }
+  
+  .file-table th {
+    background-color: #f4f4f4;
+  }
+  
+  .file-table tr:hover {
+    background-color: #f1f1f1;
+  }
+  
+  .process-button {
+    padding: 5px 10px;
+    background-color: #007bff;
+    color: white;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  
+  .process-button:hover {
+    background-color: #0056b3;
+  }
+  
