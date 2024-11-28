@@ -237,7 +237,7 @@ async def stream_text_output_endpoint(request: DocumentQueryRequest):
     return StreamingResponse(stream_text_output(user_query), media_type="text/plain")
 
 
-@app.post("/upload/")
+@app.post("/files/")
 async def upload_file(file: UploadFile = File(...)):
     logging.info(f"Received file: {file.filename if file else 'No file received'}")
 
@@ -285,7 +285,7 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail="Error uploading file")
 
 
-@app.get("/files")
+@app.get("/files/")
 async def list_files():
     listed_files = list(files_collection.find())
     for file in listed_files:
