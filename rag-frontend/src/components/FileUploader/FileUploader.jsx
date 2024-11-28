@@ -39,7 +39,7 @@ const FileUploader = () => {
     return (
         <div {...getRootProps()} style={{ border: '2px dashed gray', padding: '20px', textAlign: 'center' }}>
             <input {...getInputProps()} />
-            <p>Drag & drop your files here, or click to select files</p>
+            <p>Click to select files</p>
             {uploadError && <p style={{ color: 'red' }}>{uploadError}</p>}
             {successMessage && <p style={{ color: 'green' }}>{successMessage}</p>}
         </div>

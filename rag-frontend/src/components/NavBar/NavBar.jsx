@@ -7,11 +7,11 @@ const NavBar = () => {
             <NavLink to="/" style={({ isActive }) => ({ color: isActive ? 'yellow' : 'white' })}>
                 Home
             </NavLink>
-            <NavLink to="/upload" style={({ isActive }) => ({ color: isActive ? 'yellow' : 'white' })}>
-                Upload
-            </NavLink>
             <NavLink to="/files" style={({ isActive }) => ({ color: isActive ? 'yellow' : 'white' })}>
                 Files
+            </NavLink>
+            <NavLink to="/upload" style={({ isActive }) => ({ color: isActive ? 'yellow' : 'white' })}>
+                Upload
             </NavLink>
         </nav>
     );
