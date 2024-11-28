@@ -18,13 +18,15 @@ const Table = ({ fileList }) => {
                 <thead>
                     <tr>
                         <th>Filename</th>
+                        <th>File Link</th>
                         <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
                     {fileList.map((file, index) => (
                         <tr key={index}>
-                            <td>{file.filename}</td>
+                            <td>{file?.filename}</td>
+                            <td><a href={file?.hdfs_path}>Download file</a></td>
                             <td>
                                 <button className='process-button' onClick={() => alert(`Process ${file.filename}`)}>
                                     Process Document

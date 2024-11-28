@@ -18,6 +18,7 @@ from pymongo import MongoClient
 from datetime import datetime
 import boto3
 from urllib.parse import quote_plus
+from hdfs import InsecureClient
 
 
 # Set up logging
@@ -56,37 +57,6 @@ mongo_client = MongoClient(f"mongodb://{username}:{password}@192.168.4.218:27017
 db = mongo_client["file_manager"]
 files_collection = db["files"]
 
-# MinIO setup
-minio_client = boto3.client(
-    "s3",
-    endpoint_url="http://192.168.4.218:9000",
-    aws_access_key_id="minioadmin",
-    aws_secret_access_key="Th3laundry123@@",
-)
-
-bucket_name = "uploads"
-# Check if the bucket exists before trying to create it
-try:
-    # List all buckets and check if the target bucket exists
-    existing_buckets = minio_client.list_buckets()
-    bucket_exists = any(
-        bucket["Name"] == bucket_name for bucket in existing_buckets["Buckets"]
-    )
-
-    if not bucket_exists:
-        minio_client.create_bucket(Bucket=bucket_name)
-        logging.info(f"Bucket '{bucket_name}' created successfully.")
-    else:
-        logging.info(f"Bucket '{bucket_name}' already exists.")
-
-except Exception as e:
-    logging.error(f"Error checking or creating bucket: {str(e)}")
-    raise HTTPException(
-        status_code=500, detail="Error with bucket creation or verification"
-    )
-
-
-# Folder containing the documents
 DOCUMENTS_FOLDER = "documents/"
 
 
@@ -270,9 +240,13 @@ async def stream_text_output_endpoint(request: DocumentQueryRequest):
 @app.post("/upload/")
 async def upload_file(file: UploadFile = File(...)):
     logging.info(f"Received file: {file.filename if file else 'No file received'}")
+
+    hdfs_client = InsecureClient("http://192.168.4.218:9870", user="hadoop")
+
     if file is None:
         logging.error("No file received in the request.")
         raise HTTPException(status_code=400, detail="File is required")
+
     logging.debug(f"Received file: {file.filename}")
     """
     Uploads a .pdf or .docx file, stores it in MinIO, and indexes metadata in MongoDB.
@@ -288,30 +262,28 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="File already exists")
 
     try:
-        # Upload file to MinIO
-        minio_client.put_object(
-            Bucket=bucket_name,
-            Key=file.filename,
-            Body=file.file,
-            ContentType=file.content_type,
-        )
-        
-        fileURL = f"http://192.168.4.218:9000/{bucket_name}/{file.filename}"
+        # Define HDFS path for the file
+        hdfs_path = f"/uploads/{file.filename}"
+        webhdfs_url = f"http://192.168.4.218:9870/webhdfs/v1{hdfs_path}?op=OPEN"
+
+        # Save to HDFS
+        with hdfs_client.write(hdfs_path, overwrite=True) as writer:
+            writer.write(file.file.read())
 
         # Save metadata in MongoDB
         file_metadata = {
             "filename": file.filename,
             "upload_timestamp": datetime.utcnow(),
-            "fileURL": fileURL
+            "hdfs_path": webhdfs_url,  # Save the WebHDFS URL instead of just the path
         }
         files_collection.insert_one(file_metadata)
 
-        logging.info(f"File '{file.filename}' uploaded successfully.")
-        return {"message": "File uploaded successfully"}
+        return {"message": "File uploaded successfully", "hdfs_path": webhdfs_url}
 
     except Exception as e:
         logging.error(f"Error uploading file: {str(e)}")
         raise HTTPException(status_code=500, detail="Error uploading file")
+
 
 @app.get("/files")
 async def list_files():
@@ -319,6 +291,7 @@ async def list_files():
     for file in listed_files:
         file["_id"] = str(file["_id"])
     return {"files": listed_files}
+
 
 # Add uvicorn startup code
 if __name__ == "__main__":
