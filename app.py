@@ -2,7 +2,7 @@ import os
 import logging
 import requests
 import json
-from fastapi import FastAPI, HTTPException, File, UploadFile
+from fastapi import FastAPI, HTTPException, File, UploadFile, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -19,6 +19,7 @@ from datetime import datetime
 import boto3
 from urllib.parse import quote_plus
 from hdfs import InsecureClient
+from urllib.parse import urlparse
 
 
 # Set up logging
@@ -195,6 +196,78 @@ async def process_documents(request: DocumentQueryRequest):
     return {"generated_answer": generated_answer}
 
 
+# STEP 1: process documents
+import requests
+
+
+@app.post("/document")
+async def process_document_endpoint(file_url: str = Body(..., embed=True)):
+    logging.debug(f"Processing document from URL: {file_url}")
+
+    # Parse the URL and extract the file name
+    parsed_url = urlparse(file_url)
+    file_name = os.path.basename(parsed_url.path)  # This removes query parameters
+    temp_file_path = f"temp_{file_name}"
+
+    # Attempt to download the file
+    try:
+        response = requests.get(file_url)
+        response.raise_for_status()  # Raise an error if the request fails
+        with open(temp_file_path, "wb") as temp_file:
+            temp_file.write(response.content)
+    except requests.exceptions.RequestException as e:
+        logging.error(f"Error downloading file from URL: {file_url} - {e}")
+        raise HTTPException(status_code=500, detail=f"Error downloading file: {e}")
+
+    try:
+        # Process the file
+        processed_data = process_document(temp_file_path)
+        if not processed_data:
+            raise Exception("Processing failed or returned no content.")
+
+        # Save processed text locally
+        output_dir = "processed_docs"
+        os.makedirs(output_dir, exist_ok=True)
+        output_file_path = os.path.join(output_dir, f"{file_name}.txt")
+        with open(output_file_path, "w", encoding="utf-8") as output_file:
+            output_file.write(processed_data["text"])  # Save the extracted text
+
+        # Upload the processed file to the /files endpoint
+        files_endpoint_url = "http://127.0.0.1:8000/files"
+        with open(output_file_path, "rb") as processed_file:
+            upload_response = requests.post(
+                files_endpoint_url,
+                files={"file": processed_file},
+            )
+            if upload_response.status_code != 200:
+                logging.error(
+                    f"Failed to upload processed file to /files: {upload_response.text}"
+                )
+                raise HTTPException(
+                    status_code=500,
+                    detail=f"Failed to upload processed file: {upload_response.text}",
+                )
+            logging.info(
+                f"File successfully uploaded to /files: {upload_response.json()}"
+            )
+
+        # Return success response
+        logging.info(f"File processed successfully: {output_file_path}")
+        return {
+            "status": "success",
+            "processed_file_path": output_file_path,
+            "upload_response": upload_response.json(),
+        }
+
+    except Exception as e:
+        logging.error(f"Error processing document: {e}")
+        raise HTTPException(status_code=500, detail="Error processing document")
+    finally:
+        # Clean up temporary file
+        if os.path.exists(temp_file_path):
+            os.remove(temp_file_path)
+
+
 # New endpoint for streaming text output
 async def stream_text_output(user_query: str):
     rag_api_url = "http://127.0.0.1:11434/api/generate"
@@ -251,7 +324,7 @@ async def upload_file(file: UploadFile = File(...)):
     """
     Uploads a .pdf or .docx file, stores it in MinIO, and indexes metadata in MongoDB.
     """
-    if not file.filename.endswith((".pdf", ".docx")):
+    if not file.filename.endswith((".pdf", ".docx", ".txt")):
         raise HTTPException(
             status_code=400, detail="Only .pdf and .docx files are allowed"
         )

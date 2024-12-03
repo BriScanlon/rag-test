@@ -1,17 +1,32 @@
 import React from 'react';
-
-// styles
 import './Table.css';
 
-
-/**
- * Table Component
- * Displays a list of files in a table format with a "Process Document" button for each file.
- * 
- * @param {Array} fileList - An array of file objects containing file details such as filename.
- * @returns {JSX.Element} A table displaying the file list with action buttons.
- */
 const Table = ({ fileList }) => {
+    // Function to handle processing a document
+    const processDocument = async (fileUrl) => {
+        try {
+            const response = await fetch('http://127.0.0.1:8000/document', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({ file_url: fileUrl }),
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                alert(`Error processing document: ${errorData.detail}`);
+                return;
+            }
+
+            const result = await response.json();
+            alert(`Success! Processed document saved at: ${result.processed_file_path}`);
+        } catch (error) {
+            console.error('Error processing document:', error);
+            alert('An error occurred while processing the document.');
+        }
+    };
+
     return (
         <div className="file-table-container">
             <table className="file-table">
@@ -28,7 +43,10 @@ const Table = ({ fileList }) => {
                             <td>{file?.filename}</td>
                             <td><a href={file?.hdfs_path}>Download file</a></td>
                             <td>
-                                <button className='process-button' onClick={() => alert(`Process ${file.filename}`)}>
+                                <button
+                                    className='process-button'
+                                    onClick={() => processDocument(file.hdfs_path)}
+                                >
                                     Process Document
                                 </button>
                             </td>
@@ -37,7 +55,7 @@ const Table = ({ fileList }) => {
                 </tbody>
             </table>
         </div>
-    )
-}
+    );
+};
 
 export default Table;
