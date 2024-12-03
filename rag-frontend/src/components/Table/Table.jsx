@@ -47,7 +47,6 @@ const Table = ({ fileList }) => {
                     <tr>
                         <th>Filename</th>
                         <th>File Link</th>
-                        <th>Action</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -55,14 +54,6 @@ const Table = ({ fileList }) => {
                         <tr key={index}>
                             <td>{file?.filename}</td>
                             <td><a href={file?.hdfs_path}>Download file</a></td>
-                            <td>
-                                <button
-                                    className='process-button'
-                                    onClick={() => processDocument(file.hdfs_path)}
-                                >
-                                    Process Document
-                                </button>
-                            </td>
                         </tr>
                     ))}
                 </tbody>

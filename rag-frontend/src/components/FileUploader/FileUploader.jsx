@@ -15,12 +15,12 @@ const FileUploader = () => {
             formData.append('file', file);
 
             try {
-                const response = await axios.post('http://localhost:8000/files', formData, {
+                const response = await axios.post('http://localhost:8000/document', formData, {
                     headers: {
                         'Content-Type': 'multipart/form-data',
                     },
                 });
-                setSuccessMessage(response.data.message);
+                setSuccessMessage(response.data.status);
             } catch (error) {
                 if (error.response && error.response.data.detail === 'File already exists') {
                     setUploadError('File already exists.');
