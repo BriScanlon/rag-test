@@ -20,6 +20,7 @@ import boto3
 from urllib.parse import quote_plus
 from hdfs import InsecureClient
 from urllib.parse import urlparse
+import time
 
 
 # Set up logging
@@ -197,75 +198,113 @@ async def process_documents(request: DocumentQueryRequest):
 
 
 # STEP 1: process documents
-import requests
-
-
 @app.post("/document")
-async def process_document_endpoint(file_url: str = Body(..., embed=True)):
-    logging.debug(f"Processing document from URL: {file_url}")
+async def upload_and_process_document(file: UploadFile = File(...)):
+    logging.debug(f"1. Received file: {file.filename if file else 'No file received'}")
 
-    # Parse the URL and extract the file name
-    parsed_url = urlparse(file_url)
-    file_name = os.path.basename(parsed_url.path)  # This removes query parameters
-    temp_file_path = f"temp_{file_name}"
+    if not file:
+        raise HTTPException(status_code=400, detail="File is required")
 
-    # Attempt to download the file
+    # Validate the file type
+    allowed_extensions = {"pdf", "docx", "txt"}
+    file_extension = file.filename.split(".")[-1].lower()
+    if file_extension not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+    logging.debug(f"2. {file} passed file type validation. {file_extension}")
+
+    # Save original file to HDFS
     try:
-        response = requests.get(file_url)
-        response.raise_for_status()  # Raise an error if the request fails
-        with open(temp_file_path, "wb") as temp_file:
-            temp_file.write(response.content)
-    except requests.exceptions.RequestException as e:
-        logging.error(f"Error downloading file from URL: {file_url} - {e}")
-        raise HTTPException(status_code=500, detail=f"Error downloading file: {e}")
+        logging.debug("3. Saving original file to HDFS.")
+        hdfs_client = InsecureClient("http://192.168.4.218:9870", user="hadoop")
+        hdfs_path_original = f"/uploads/{file.filename}"
+        webhdfs_url_original = (
+            f"http://192.168.4.218:9870/webhdfs/v1{hdfs_path_original}?op=OPEN"
+        )
 
-    try:
-        # Process the file
-        processed_data = process_document(temp_file_path)
-        if not processed_data:
-            raise Exception("Processing failed or returned no content.")
+        # Write to HDFS
+        with hdfs_client.write(hdfs_path_original, overwrite=True) as writer:
+            writer.write(file.file.read())
+        logging.info(
+            f"4. Original file successfully saved to HDFS at {webhdfs_url_original}"
+        )
 
-        # Save processed text locally
-        output_dir = "processed_docs"
-        os.makedirs(output_dir, exist_ok=True)
-        output_file_path = os.path.join(output_dir, f"{file_name}.txt")
-        with open(output_file_path, "w", encoding="utf-8") as output_file:
-            output_file.write(processed_data["text"])  # Save the extracted text
-
-        # Upload the processed file to the /files endpoint
-        files_endpoint_url = "http://127.0.0.1:8000/files"
-        with open(output_file_path, "rb") as processed_file:
-            upload_response = requests.post(
-                files_endpoint_url,
-                files={"file": processed_file},
-            )
-            if upload_response.status_code != 200:
-                logging.error(
-                    f"Failed to upload processed file to /files: {upload_response.text}"
-                )
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to upload processed file: {upload_response.text}",
-                )
-            logging.info(
-                f"File successfully uploaded to /files: {upload_response.json()}"
-            )
-
-        # Return success response
-        logging.info(f"File processed successfully: {output_file_path}")
-        return {
-            "status": "success",
-            "processed_file_path": output_file_path,
-            "upload_response": upload_response.json(),
+        # Save original file metadata in MongoDB
+        original_file_metadata = {
+            "filename": file.filename,
+            "upload_timestamp": datetime.utcnow(),
+            "hdfs_path": webhdfs_url_original,
         }
+        files_collection.insert_one(original_file_metadata)
+        logging.info(f"5. Saved to mongodb")
 
     except Exception as e:
-        logging.error(f"Error processing document: {e}")
-        raise HTTPException(status_code=500, detail="Error processing document")
-    finally:
-        # Clean up temporary file
-        if os.path.exists(temp_file_path):
-            os.remove(temp_file_path)
+        logging.error(f"Error saving original file to HDFS: {e}")
+        raise HTTPException(
+            status_code=500, detail="Error saving original file to HDFS"
+        )
+
+    # Reset file pointer for processing
+    file.file.seek(0)
+
+    # Process the file and save as .txt to HDFS
+    try:
+        logging.debug("6. Processing the file.")
+        # Read the file content
+        file_content = file.file.read()
+        if not file_content:
+            raise HTTPException(status_code=400, detail="File is empty or unreadable")
+
+        try:
+            # Convert content to a string for processing
+            
+            processed_data = process_document(file_content, file_extension)
+        except Exception as e:
+            logging.error(f"Error during file processing: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error processing the file")
+
+        if not processed_data or "text" not in processed_data:
+            raise Exception("Processing failed or returned no content.")
+
+        # Save processed text as .txt file to HDFS
+        processed_filename = f"{file.filename.split('.')[0]}.txt"
+        hdfs_path_processed = f"/uploads/{processed_filename}"
+        webhdfs_url_processed = (
+            f"http://192.168.4.218:9870/webhdfs/v1{hdfs_path_processed}?op=OPEN"
+        )
+
+        with hdfs_client.write(hdfs_path_processed, overwrite=True) as writer:
+            writer.write(processed_data["text"].encode("utf-8"))
+        logging.info(
+            f"7. Processed file successfully saved to HDFS at {webhdfs_url_processed}"
+        )
+
+        # Save processed file metadata in MongoDB
+        processed_file_metadata = {
+            "filename": processed_filename,
+            "upload_timestamp": datetime.utcnow(),
+            "hdfs_path": webhdfs_url_processed,
+        }
+        files_collection.insert_one(processed_file_metadata)
+
+    except Exception as e:
+        logging.error(f"Error processing or saving processed file to HDFS: {e}")
+        raise HTTPException(
+            status_code=500, detail="Error processing or saving processed file to HDFS"
+        )
+
+    return {
+        "status": "success",
+        "original_file": {
+            "filename": original_file_metadata["filename"],
+            "hdfs_path": original_file_metadata["hdfs_path"],
+            "upload_timestamp": original_file_metadata["upload_timestamp"],
+        },
+        "processed_file": {
+            "filename": processed_file_metadata["filename"],
+            "hdfs_path": processed_file_metadata["hdfs_path"],
+            "upload_timestamp": processed_file_metadata["upload_timestamp"],
+        },
+    }
 
 
 # New endpoint for streaming text output

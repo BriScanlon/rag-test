@@ -4,6 +4,9 @@ import './Table.css';
 const Table = ({ fileList }) => {
     // Function to handle processing a document
     const processDocument = async (fileUrl) => {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 15000); // 15-second timeout
+
         try {
             const response = await fetch('http://127.0.0.1:8000/document', {
                 method: 'POST',
@@ -11,7 +14,10 @@ const Table = ({ fileList }) => {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({ file_url: fileUrl }),
+                signal: controller.signal,
             });
+
+            clearTimeout(timeout);
 
             if (!response.ok) {
                 const errorData = await response.json();
@@ -22,10 +28,17 @@ const Table = ({ fileList }) => {
             const result = await response.json();
             alert(`Success! Processed document saved at: ${result.processed_file_path}`);
         } catch (error) {
-            console.error('Error processing document:', error);
-            alert('An error occurred while processing the document.');
+            clearTimeout(timeout);
+
+            if (error.name === 'AbortError') {
+                alert('Request timed out. Please try again.');
+            } else {
+                console.error('Error processing document:', error);
+                alert('An error occurred while processing the document.');
+            }
         }
     };
+
 
     return (
         <div className="file-table-container">
