@@ -256,7 +256,6 @@ async def upload_and_process_document(file: UploadFile = File(...)):
 
         try:
             # Convert content to a string for processing
-            
             processed_data = process_document(file_content, file_extension)
         except Exception as e:
             logging.error(f"Error during file processing: {str(e)}")
@@ -284,7 +283,21 @@ async def upload_and_process_document(file: UploadFile = File(...)):
             "upload_timestamp": datetime.utcnow(),
             "hdfs_path": webhdfs_url_processed,
         }
-        files_collection.insert_one(processed_file_metadata)
+        result = files_collection.insert_one(processed_file_metadata)
+
+        # Check for the presence of "text" in the processed_data
+        if not processed_data or "text" not in processed_data:
+            raise Exception("Processing failed or returned no content.")
+
+        # Extract text for further processing
+        text_content = processed_data["text"]  # Access the "text" key directly
+        if not isinstance(text_content, str):
+            raise Exception("Processed text content is not a string.")
+
+        # Chunk the text and save metadata
+        chunk_ids = chunk_text(text_content, result.inserted_id)
+
+        print(f"Chunk IDs: {chunk_ids}")
 
     except Exception as e:
         logging.error(f"Error processing or saving processed file to HDFS: {e}")
@@ -303,6 +316,11 @@ async def upload_and_process_document(file: UploadFile = File(...)):
             "filename": processed_file_metadata["filename"],
             "hdfs_path": processed_file_metadata["hdfs_path"],
             "upload_timestamp": processed_file_metadata["upload_timestamp"],
+        },
+        "chunks": {
+            "chunk_ids": [
+                str(chunk_id) for chunk_id in chunk_ids
+            ],  # Convert ObjectId to string
         },
     }
 
@@ -399,9 +417,18 @@ async def upload_file(file: UploadFile = File(...)):
 
 @app.get("/files/")
 async def list_files():
+    # Fetch all files from the `files` collection
     listed_files = list(files_collection.find())
+
+    # For each file, check if it has been chunked
     for file in listed_files:
-        file["_id"] = str(file["_id"])
+        file_id = file["_id"]
+        file["_id"] = str(file_id)  # Convert ObjectId to string for JSON serialization
+
+        # Check if there are any chunks with the matching file_id
+        chunk_exists = db["chunks"].find_one({"file_id": file_id}) is not None
+        file["chunked"] = chunk_exists  # Add chunked status as a boolean
+
     return {"files": listed_files}
 
 

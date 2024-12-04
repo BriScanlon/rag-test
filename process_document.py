@@ -3,6 +3,46 @@ import fitz  # PyMuPDF for PDF handling
 import docx  # python-docx for DOCX handling
 import io
 
+
+def extract_tables_from_page(page_text):
+    """
+    Extracts simple table-like structures from page text.
+
+    Args:
+        page_text (str): The text content of a PDF page.
+
+    Returns:
+        list: A list of table-like structures, each represented as a list of rows.
+    """
+    tables = []
+    try:
+        # Split text into lines
+        lines = page_text.splitlines()
+
+        # Look for lines with consistent column-like spacing (e.g., using tabs or multiple spaces)
+        table = []
+        for line in lines:
+            # Detect potential table rows (e.g., lines with multiple spaces or tab delimiters)
+            if "\t" in line or "  " in line:
+                # Split the row into columns based on tabs or spaces
+                columns = line.split("\t") if "\t" in line else line.split()
+                table.append(columns)
+            elif (
+                table
+            ):  # If we find a line not part of the table, save the current table
+                tables.append(table)
+                table = []  # Reset for the next table
+
+        # Append the last table if still active
+        if table:
+            tables.append(table)
+
+    except Exception as e:
+        logging.warning(f"Failed to extract tables from page: {e}")
+
+    return tables
+
+
 def process_pdf(file_content):
     logging.debug("Starting PDF processing.")
     try:
@@ -46,7 +86,6 @@ def process_pdf(file_content):
     except Exception as e:
         logging.error(f"Error processing PDF: {e}")
         return None
-
 
 
 def process_docx(file_content):

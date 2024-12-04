@@ -47,6 +47,7 @@ const Table = ({ fileList }) => {
                     <tr>
                         <th>Filename</th>
                         <th>File Link</th>
+                        <th>File Chunked?</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -54,6 +55,7 @@ const Table = ({ fileList }) => {
                         <tr key={index}>
                             <td>{file?.filename}</td>
                             <td><a href={file?.hdfs_path}>Download file</a></td>
+                            <td>{file?.chunked ? "True" : "False"}</td>
                         </tr>
                     ))}
                 </tbody>
