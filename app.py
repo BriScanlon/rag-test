@@ -2,7 +2,7 @@ import os
 import logging
 import requests
 import json
-from fastapi import FastAPI, HTTPException, File, UploadFile
+from fastapi import FastAPI, HTTPException, File, UploadFile, Body
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
@@ -18,6 +18,9 @@ from pymongo import MongoClient
 from datetime import datetime
 import boto3
 from urllib.parse import quote_plus
+from hdfs import InsecureClient
+from urllib.parse import urlparse
+import time
 
 
 # Set up logging
@@ -56,37 +59,6 @@ mongo_client = MongoClient(f"mongodb://{username}:{password}@192.168.4.218:27017
 db = mongo_client["file_manager"]
 files_collection = db["files"]
 
-# MinIO setup
-minio_client = boto3.client(
-    "s3",
-    endpoint_url="http://192.168.4.218:9000",
-    aws_access_key_id="minioadmin",
-    aws_secret_access_key="Th3laundry123@@",
-)
-
-bucket_name = "uploads"
-# Check if the bucket exists before trying to create it
-try:
-    # List all buckets and check if the target bucket exists
-    existing_buckets = minio_client.list_buckets()
-    bucket_exists = any(
-        bucket["Name"] == bucket_name for bucket in existing_buckets["Buckets"]
-    )
-
-    if not bucket_exists:
-        minio_client.create_bucket(Bucket=bucket_name)
-        logging.info(f"Bucket '{bucket_name}' created successfully.")
-    else:
-        logging.info(f"Bucket '{bucket_name}' already exists.")
-
-except Exception as e:
-    logging.error(f"Error checking or creating bucket: {str(e)}")
-    raise HTTPException(
-        status_code=500, detail="Error with bucket creation or verification"
-    )
-
-
-# Folder containing the documents
 DOCUMENTS_FOLDER = "documents/"
 
 
@@ -225,6 +197,134 @@ async def process_documents(request: DocumentQueryRequest):
     return {"generated_answer": generated_answer}
 
 
+# STEP 1: process documents
+@app.post("/document")
+async def upload_and_process_document(file: UploadFile = File(...)):
+    logging.debug(f"1. Received file: {file.filename if file else 'No file received'}")
+
+    if not file:
+        raise HTTPException(status_code=400, detail="File is required")
+
+    # Validate the file type
+    allowed_extensions = {"pdf", "docx", "txt"}
+    file_extension = file.filename.split(".")[-1].lower()
+    if file_extension not in allowed_extensions:
+        raise HTTPException(status_code=400, detail="Unsupported file type")
+    logging.debug(f"2. {file} passed file type validation. {file_extension}")
+
+    # Save original file to HDFS
+    try:
+        logging.debug("3. Saving original file to HDFS.")
+        hdfs_client = InsecureClient("http://192.168.4.218:9870", user="hadoop")
+        hdfs_path_original = f"/uploads/{file.filename}"
+        webhdfs_url_original = (
+            f"http://192.168.4.218:9870/webhdfs/v1{hdfs_path_original}?op=OPEN"
+        )
+
+        # Write to HDFS
+        with hdfs_client.write(hdfs_path_original, overwrite=True) as writer:
+            writer.write(file.file.read())
+        logging.info(
+            f"4. Original file successfully saved to HDFS at {webhdfs_url_original}"
+        )
+
+        # Save original file metadata in MongoDB
+        original_file_metadata = {
+            "filename": file.filename,
+            "upload_timestamp": datetime.utcnow(),
+            "hdfs_path": webhdfs_url_original,
+        }
+        files_collection.insert_one(original_file_metadata)
+        logging.info(f"5. Saved to mongodb")
+
+    except Exception as e:
+        logging.error(f"Error saving original file to HDFS: {e}")
+        raise HTTPException(
+            status_code=500, detail="Error saving original file to HDFS"
+        )
+
+    # Reset file pointer for processing
+    file.file.seek(0)
+
+    # Process the file and save as .txt to HDFS
+    try:
+        logging.debug("6. Processing the file.")
+        # Read the file content
+        file_content = file.file.read()
+        if not file_content:
+            raise HTTPException(status_code=400, detail="File is empty or unreadable")
+
+        try:
+            # Convert content to a string for processing
+            processed_data = process_document(file_content, file_extension)
+        except Exception as e:
+            logging.error(f"Error during file processing: {str(e)}")
+            raise HTTPException(status_code=500, detail="Error processing the file")
+
+        if not processed_data or "text" not in processed_data:
+            raise Exception("Processing failed or returned no content.")
+
+        # Save processed text as .txt file to HDFS
+        processed_filename = f"{file.filename.split('.')[0]}.txt"
+        hdfs_path_processed = f"/uploads/{processed_filename}"
+        webhdfs_url_processed = (
+            f"http://192.168.4.218:9870/webhdfs/v1{hdfs_path_processed}?op=OPEN"
+        )
+
+        with hdfs_client.write(hdfs_path_processed, overwrite=True) as writer:
+            writer.write(processed_data["text"].encode("utf-8"))
+        logging.info(
+            f"7. Processed file successfully saved to HDFS at {webhdfs_url_processed}"
+        )
+
+        # Save processed file metadata in MongoDB
+        processed_file_metadata = {
+            "filename": processed_filename,
+            "upload_timestamp": datetime.utcnow(),
+            "hdfs_path": webhdfs_url_processed,
+        }
+        result = files_collection.insert_one(processed_file_metadata)
+
+        # Check for the presence of "text" in the processed_data
+        if not processed_data or "text" not in processed_data:
+            raise Exception("Processing failed or returned no content.")
+
+        # Extract text for further processing
+        text_content = processed_data["text"]  # Access the "text" key directly
+        if not isinstance(text_content, str):
+            raise Exception("Processed text content is not a string.")
+
+        # Chunk the text and save metadata
+        chunk_ids = chunk_text(text_content, result.inserted_id)
+
+        print(f"Chunk IDs: {chunk_ids}")
+
+    except Exception as e:
+        logging.error(f"Error processing or saving processed file to HDFS: {e}")
+        raise HTTPException(
+            status_code=500, detail="Error processing or saving processed file to HDFS"
+        )
+
+    return {
+        "status": "success",
+        "original_file": {
+            "filename": original_file_metadata["filename"],
+            "hdfs_path": original_file_metadata["hdfs_path"],
+            "upload_timestamp": original_file_metadata["upload_timestamp"],
+        },
+        "processed_file": {
+            "filename": processed_file_metadata["filename"],
+            "hdfs_path": processed_file_metadata["hdfs_path"],
+            "upload_timestamp": processed_file_metadata["upload_timestamp"],
+        },
+        "chunks": {
+            "chunk_ids": [
+                str(chunk_id) for chunk_id in chunk_ids
+            ],  # Convert ObjectId to string
+        },
+    }
+
+
 # New endpoint for streaming text output
 async def stream_text_output(user_query: str):
     rag_api_url = "http://127.0.0.1:11434/api/generate"
@@ -267,17 +367,21 @@ async def stream_text_output_endpoint(request: DocumentQueryRequest):
     return StreamingResponse(stream_text_output(user_query), media_type="text/plain")
 
 
-@app.post("/upload/")
+@app.post("/files/")
 async def upload_file(file: UploadFile = File(...)):
     logging.info(f"Received file: {file.filename if file else 'No file received'}")
+
+    hdfs_client = InsecureClient("http://192.168.4.218:9870", user="hadoop")
+
     if file is None:
         logging.error("No file received in the request.")
         raise HTTPException(status_code=400, detail="File is required")
+
     logging.debug(f"Received file: {file.filename}")
     """
     Uploads a .pdf or .docx file, stores it in MinIO, and indexes metadata in MongoDB.
     """
-    if not file.filename.endswith((".pdf", ".docx")):
+    if not file.filename.endswith((".pdf", ".docx", ".txt")):
         raise HTTPException(
             status_code=400, detail="Only .pdf and .docx files are allowed"
         )
@@ -288,37 +392,45 @@ async def upload_file(file: UploadFile = File(...)):
         raise HTTPException(status_code=400, detail="File already exists")
 
     try:
-        # Upload file to MinIO
-        minio_client.put_object(
-            Bucket=bucket_name,
-            Key=file.filename,
-            Body=file.file,
-            ContentType=file.content_type,
-        )
-        
-        fileURL = f"http://192.168.4.218:9000/{bucket_name}/{file.filename}"
+        # Define HDFS path for the file
+        hdfs_path = f"/uploads/{file.filename}"
+        webhdfs_url = f"http://192.168.4.218:9870/webhdfs/v1{hdfs_path}?op=OPEN"
+
+        # Save to HDFS
+        with hdfs_client.write(hdfs_path, overwrite=True) as writer:
+            writer.write(file.file.read())
 
         # Save metadata in MongoDB
         file_metadata = {
             "filename": file.filename,
             "upload_timestamp": datetime.utcnow(),
-            "fileURL": fileURL
+            "hdfs_path": webhdfs_url,  # Save the WebHDFS URL instead of just the path
         }
         files_collection.insert_one(file_metadata)
 
-        logging.info(f"File '{file.filename}' uploaded successfully.")
-        return {"message": "File uploaded successfully"}
+        return {"message": "File uploaded successfully", "hdfs_path": webhdfs_url}
 
     except Exception as e:
         logging.error(f"Error uploading file: {str(e)}")
         raise HTTPException(status_code=500, detail="Error uploading file")
 
-@app.get("/files")
+
+@app.get("/files/")
 async def list_files():
+    # Fetch all files from the `files` collection
     listed_files = list(files_collection.find())
+
+    # For each file, check if it has been chunked
     for file in listed_files:
-        file["_id"] = str(file["_id"])
+        file_id = file["_id"]
+        file["_id"] = str(file_id)  # Convert ObjectId to string for JSON serialization
+
+        # Check if there are any chunks with the matching file_id
+        chunk_exists = db["chunks"].find_one({"file_id": file_id}) is not None
+        file["chunked"] = chunk_exists  # Add chunked status as a boolean
+
     return {"files": listed_files}
+
 
 # Add uvicorn startup code
 if __name__ == "__main__":

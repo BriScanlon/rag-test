@@ -15,12 +15,12 @@ const FileUploader = () => {
             formData.append('file', file);
 
             try {
-                const response = await axios.post('http://localhost:8000/upload', formData, {
+                const response = await axios.post('http://localhost:8000/document', formData, {
                     headers: {
                         'Content-Type': 'multipart/form-data',
                     },
                 });
-                setSuccessMessage(response.data.message);
+                setSuccessMessage(response.data.status);
             } catch (error) {
                 if (error.response && error.response.data.detail === 'File already exists') {
                     setUploadError('File already exists.');
@@ -39,7 +39,7 @@ const FileUploader = () => {
     return (
         <div {...getRootProps()} style={{ border: '2px dashed gray', padding: '20px', textAlign: 'center' }}>
             <input {...getInputProps()} />
-            <p>Drag & drop your files here, or click to select files</p>
+            <p>Click to select files</p>
             {uploadError && <p style={{ color: 'red' }}>{uploadError}</p>}
             {successMessage && <p style={{ color: 'green' }}>{successMessage}</p>}
         </div>
