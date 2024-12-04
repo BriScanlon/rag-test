@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from chunking import chunk_text
-from vectorising import embed_chunks
+from vectorising import embed_chunks_and_save_to_faiss
 from indexing import create_faiss_index, query_index
 from sentence_transformers import SentenceTransformer
 from rag_request import send_to_rag_api
@@ -21,6 +21,19 @@ from urllib.parse import quote_plus
 from hdfs import InsecureClient
 from urllib.parse import urlparse
 import time
+from bson import ObjectId
+
+
+def convert_objectid_to_str(data):
+    """Recursively convert ObjectId instances to strings."""
+    if isinstance(data, list):
+        return [convert_objectid_to_str(item) for item in data]
+    elif isinstance(data, dict):
+        return {key: convert_objectid_to_str(value) for key, value in data.items()}
+    elif isinstance(data, ObjectId):
+        return str(data)
+    else:
+        return data
 
 
 # Set up logging
@@ -43,11 +56,13 @@ app = FastAPI()
 # CORS Middleware configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow specific frontend origin
+    allow_origins=["*"],
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all HTTP methods
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
+
+logging.info("CORS Middleware loaded")
 
 # MongoDB setup
 # Encode username and password
@@ -58,6 +73,10 @@ password = quote_plus("Th3laundry123")
 mongo_client = MongoClient(f"mongodb://{username}:{password}@192.168.4.218:27017/")
 db = mongo_client["file_manager"]
 files_collection = db["files"]
+chunks_collection = db["chunks"]
+
+# HDFS client setup
+hdfs_client = InsecureClient("http://192.168.4.218:9870", user="hadoop")
 
 DOCUMENTS_FOLDER = "documents/"
 
@@ -198,44 +217,48 @@ async def process_documents(request: DocumentQueryRequest):
 
 
 # STEP 1: process documents
+# /document endpoint
 @app.post("/document")
 async def upload_and_process_document(file: UploadFile = File(...)):
     logging.debug(f"1. Received file: {file.filename if file else 'No file received'}")
 
+    # Validate file
     if not file:
         raise HTTPException(status_code=400, detail="File is required")
-
-    # Validate the file type
     allowed_extensions = {"pdf", "docx", "txt"}
     file_extension = file.filename.split(".")[-1].lower()
     if file_extension not in allowed_extensions:
         raise HTTPException(status_code=400, detail="Unsupported file type")
-    logging.debug(f"2. {file} passed file type validation. {file_extension}")
+    logging.debug(
+        f"2. {file.filename} passed file type validation. Extension: {file_extension}"
+    )
 
     # Save original file to HDFS
     try:
         logging.debug("3. Saving original file to HDFS.")
-        hdfs_client = InsecureClient("http://192.168.4.218:9870", user="hadoop")
         hdfs_path_original = f"/uploads/{file.filename}"
         webhdfs_url_original = (
             f"http://192.168.4.218:9870/webhdfs/v1{hdfs_path_original}?op=OPEN"
         )
 
-        # Write to HDFS
         with hdfs_client.write(hdfs_path_original, overwrite=True) as writer:
             writer.write(file.file.read())
         logging.info(
             f"4. Original file successfully saved to HDFS at {webhdfs_url_original}"
         )
 
-        # Save original file metadata in MongoDB
+        # Save file metadata to MongoDB
         original_file_metadata = {
             "filename": file.filename,
             "upload_timestamp": datetime.utcnow(),
             "hdfs_path": webhdfs_url_original,
         }
-        files_collection.insert_one(original_file_metadata)
-        logging.info(f"5. Saved to mongodb")
+        original_file_id = files_collection.insert_one(
+            original_file_metadata
+        ).inserted_id
+        logging.info(
+            f"5. Original file metadata saved to MongoDB with ID: {original_file_id}"
+        )
 
     except Exception as e:
         logging.error(f"Error saving original file to HDFS: {e}")
@@ -246,25 +269,20 @@ async def upload_and_process_document(file: UploadFile = File(...)):
     # Reset file pointer for processing
     file.file.seek(0)
 
-    # Process the file and save as .txt to HDFS
+    # Process the file to extract text and save as .txt to HDFS
     try:
         logging.debug("6. Processing the file.")
-        # Read the file content
         file_content = file.file.read()
         if not file_content:
             raise HTTPException(status_code=400, detail="File is empty or unreadable")
 
-        try:
-            # Convert content to a string for processing
-            processed_data = process_document(file_content, file_extension)
-        except Exception as e:
-            logging.error(f"Error during file processing: {str(e)}")
-            raise HTTPException(status_code=500, detail="Error processing the file")
-
+        processed_data = process_document(file_content, file_extension)
         if not processed_data or "text" not in processed_data:
-            raise Exception("Processing failed or returned no content.")
+            raise HTTPException(
+                status_code=500, detail="Error processing file: no content extracted"
+            )
 
-        # Save processed text as .txt file to HDFS
+        processed_text = processed_data["text"]
         processed_filename = f"{file.filename.split('.')[0]}.txt"
         hdfs_path_processed = f"/uploads/{processed_filename}"
         webhdfs_url_processed = (
@@ -272,32 +290,20 @@ async def upload_and_process_document(file: UploadFile = File(...)):
         )
 
         with hdfs_client.write(hdfs_path_processed, overwrite=True) as writer:
-            writer.write(processed_data["text"].encode("utf-8"))
-        logging.info(
-            f"7. Processed file successfully saved to HDFS at {webhdfs_url_processed}"
-        )
+            writer.write(processed_text.encode("utf-8"))
+        logging.info(f"7. Processed text file saved to HDFS at {webhdfs_url_processed}")
 
-        # Save processed file metadata in MongoDB
         processed_file_metadata = {
             "filename": processed_filename,
             "upload_timestamp": datetime.utcnow(),
             "hdfs_path": webhdfs_url_processed,
         }
-        result = files_collection.insert_one(processed_file_metadata)
-
-        # Check for the presence of "text" in the processed_data
-        if not processed_data or "text" not in processed_data:
-            raise Exception("Processing failed or returned no content.")
-
-        # Extract text for further processing
-        text_content = processed_data["text"]  # Access the "text" key directly
-        if not isinstance(text_content, str):
-            raise Exception("Processed text content is not a string.")
-
-        # Chunk the text and save metadata
-        chunk_ids = chunk_text(text_content, result.inserted_id)
-
-        print(f"Chunk IDs: {chunk_ids}")
+        processed_file_id = files_collection.insert_one(
+            processed_file_metadata
+        ).inserted_id
+        logging.info(
+            f"8. Processed file metadata saved to MongoDB with ID: {processed_file_id}"
+        )
 
     except Exception as e:
         logging.error(f"Error processing or saving processed file to HDFS: {e}")
@@ -305,24 +311,80 @@ async def upload_and_process_document(file: UploadFile = File(...)):
             status_code=500, detail="Error processing or saving processed file to HDFS"
         )
 
-    return {
+    # Chunk the processed text and save chunks to MongoDB
+    try:
+        logging.debug("9. Chunking the processed text.")
+        chunk_ids = []
+        chunks = chunk_text(
+            processed_text, file_id=processed_file_id
+        )  # Pass file_id to chunk_text
+
+        for index, chunk in enumerate(chunks):
+            chunk_metadata = {
+                "file_id": processed_file_id,
+                "chunk_index": index,
+                "chunk_text": chunk,
+                "created_at": datetime.utcnow(),
+            }
+            chunk_id = chunks_collection.insert_one(chunk_metadata).inserted_id
+            chunk_ids.append(str(chunk_id))
+            logging.info(f"Chunk {index} saved to MongoDB with ID: {chunk_id}")
+
+        logging.info(f"10. Total {len(chunk_ids)} chunks saved to MongoDB.")
+
+    except Exception as e:
+        logging.error(f"Error during chunking or saving chunks to MongoDB: {e}")
+        raise HTTPException(
+            status_code=500, detail="Error during chunking or saving chunks"
+        )
+
+    # Vectorize chunks and save embeddings
+    try:
+        # Pass only the chunk text to the vectorization function
+        chunk_texts = [
+            chunk["chunk_text"]
+            for chunk in chunks_collection.find({"file_id": processed_file_id})
+        ]
+
+        # Vectorize the chunks and save them to FAISS
+        vector_ids = embed_chunks_and_save_to_faiss(chunk_texts, processed_file_id)
+
+        # Log the successful storage of embeddings in FAISS
+        logging.info(f"12. Vector embeddings saved in FAISS with indices: {vector_ids}")
+
+    except Exception as e:
+        logging.error(f"Error during vectorization or saving embeddings: {e}")
+        raise HTTPException(
+            status_code=500, detail="Error during vectorization or saving embeddings"
+        )
+
+    # Return response
+    response = {
         "status": "success",
         "original_file": {
+            "id": str(original_file_id),
             "filename": original_file_metadata["filename"],
             "hdfs_path": original_file_metadata["hdfs_path"],
             "upload_timestamp": original_file_metadata["upload_timestamp"],
         },
         "processed_file": {
+            "id": str(processed_file_id),
             "filename": processed_file_metadata["filename"],
             "hdfs_path": processed_file_metadata["hdfs_path"],
             "upload_timestamp": processed_file_metadata["upload_timestamp"],
         },
         "chunks": {
-            "chunk_ids": [
-                str(chunk_id) for chunk_id in chunk_ids
-            ],  # Convert ObjectId to string
+            "total_chunks": len(chunk_ids),
+            "chunk_ids": chunk_ids,
+        },
+        "vectorization": {
+            "status": "completed",
+            "vector_ids": vector_ids,  # Ensure vector_ids is a list of serializable values
         },
     }
+
+    # Convert all ObjectIds to strings
+    return convert_objectid_to_str(response)
 
 
 # New endpoint for streaming text output
@@ -429,10 +491,15 @@ async def list_files():
         chunk_exists = db["chunks"].find_one({"file_id": file_id}) is not None
         file["chunked"] = chunk_exists  # Add chunked status as a boolean
 
-    return {"files": listed_files}
+    return {"files": convert_objectid_to_str(listed_files)}
+
+
+@app.options("/{path:path}")
+async def preflight_handler():
+    return {}
 
 
 # Add uvicorn startup code
 if __name__ == "__main__":
     logging.info("Starting Uvicorn server.")
-    uvicorn.run("app:app", host="127.0.0.1", port=8000, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=8000, reload=True)

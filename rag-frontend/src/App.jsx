@@ -50,7 +50,7 @@ function App() {
   // function to call the list of files from the backend
   const handleGetFiles = async () => {
     try {
-      const response = await axios.get('http://localhost:8000/files');
+      const response = await axios.get('http://192.168.4.78:8000/files/');
       const responseJson = response.data;
       setFileList(responseJson?.files);
       console.log(JSON.stringify(fileList));
@@ -72,7 +72,7 @@ function App() {
 
     try {
       // Call the backend API to process the document query
-      const response = await axios.post('http://localhost:8000/process_documents/', {
+      const response = await axios.post('http://192.168.4.78:8000/process_documents/', {
         user_query: state.userQuery,
       });
 
@@ -134,7 +134,7 @@ function App() {
       // Start streaming by setting streaming status to true
       setStreaming(true);
 
-      const response = await fetch('http://localhost:8000/stream_text_output/', {
+      const response = await fetch('http://192.168.4.78:8000/stream_text_output/', {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
