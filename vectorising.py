@@ -5,6 +5,7 @@ from sentence_transformers import SentenceTransformer
 from pymongo import MongoClient
 from bson import ObjectId
 import logging
+from fastapi import HTTPException
 
 # Configure Logging
 LOG_DIR = "logs"
@@ -196,38 +197,54 @@ def list_vectors(vector_ids=None):
         raise HTTPException(status_code=500, detail="Error listing vectors")
 
 
-def query_faiss(query, top_k):
+from fastapi import HTTPException
+
+
+def query_faiss(query: str, top_k: int):
     """
     Query FAISS for the top_k most similar embeddings to the given query.
+    Fetch metadata for each result from MongoDB.
     """
     try:
+        # Encode the query to a vector
         query_vector = model.encode([query])
         distances, indices = faiss_index.search(query_vector, top_k)
+
         logging.debug(f"Query result indices: {indices}, distances: {distances}")
 
-        # Collect metadata for each result
+        # Prepare the results list
         results = []
+
         for idx, distance in zip(indices[0], distances[0]):
-            if idx == -1:  # FAISS returns -1 for empty slots
+            if idx == -1:
+                logging.debug(f"Skipping invalid FAISS index: {idx}")
                 continue
 
-            # Fetch metadata from MongoDB
-            chunk_data = embeddings_collection.find_one({"faiss_id": idx})
-            if chunk_data:
-                results.append(
-                    {
-                        "faiss_id": idx,
-                        "distance": float(distance),
-                        "chunk_text": chunk_data.get("chunk_text", ""),
-                        "file_id": str(chunk_data.get("file_id", "")),
-                        "chunk_index": chunk_data.get("chunk_index", -1),
-                    }
-                )
+            # Fetch metadata from MongoDB for the given FAISS index
+            chunk_data = embeddings_collection.find_one({"faiss_id": int(idx)})
+            if not chunk_data:
+                logging.warning(f"No metadata found for FAISS index: {idx}")
+                continue
+
+            # Append the result
+            results.append(
+                {
+                    "faiss_id": int(idx),
+                    "distance": round(float(distance), 6),  # Ensure precision
+                    "chunk_text": chunk_data.get("chunk_text", ""),
+                    "file_id": str(chunk_data.get("file_id", "")),
+                    "chunk_index": chunk_data.get("chunk_index", -1),
+                }
+            )
+
         return results
 
+    except ValueError as ve:
+        logging.error(f"ValueError in FAISS query: {ve}")
+        raise HTTPException(status_code=400, detail="Invalid query or top_k value.")
     except Exception as e:
-        logging.error(f"Error querying FAISS: {str(e)}")
-        raise HTTPException(status_code=500, detail="Error querying FAISS")
+        logging.error(f"Unexpected error querying FAISS: {e}")
+        raise HTTPException(status_code=500, detail="Error querying FAISS or database.")
 
 
 # Expose for Import
