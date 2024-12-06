@@ -7,7 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 from chunking import chunk_text
-from vectorising import embed_chunks_and_save_to_faiss
 from indexing import create_faiss_index, query_index
 from sentence_transformers import SentenceTransformer
 from rag_request import send_to_rag_api
@@ -23,6 +22,7 @@ from urllib.parse import urlparse
 import time
 from bson import ObjectId
 import faiss
+from vectorising import embed_chunks, query_faiss, list_vectors
 
 
 def convert_objectid_to_str(data):
@@ -48,6 +48,10 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 
+logging.info("Logging initialized.")
+
+logging.getLogger("pymongo").setLevel(logging.WARNING)
+
 # Load the pre-trained embedding model for query embedding
 model = SentenceTransformer("all-MiniLM-L12-v2")
 
@@ -60,13 +64,6 @@ class SearchRequest(BaseModel):
     query: str  # The search query text
     top_k: int = 5  # Number of similar results to return
 
-
-# FAISS Index Path (Persistent Storage)
-FAISS_DIR = "faiss_index"
-FAISS_INDEX_FILE = os.path.join(FAISS_DIR, "faiss_index.index")
-if not os.path.exists(FAISS_DIR):
-    os.makedirs(FAISS_DIR)
-EMBEDDING_DIM = 384
 
 # CORS Middleware configuration
 app.add_middleware(
@@ -106,15 +103,9 @@ def load_or_create_faiss_index(index_path, dimension):
     else:
         index = faiss.IndexFlatL2(dimension)  # Create a new index
         print("New FAISS index created.")
+    logging.debug(f"FAISS index contains {index.ntotal} vectors.")
+
     return index, index_file
-
-
-# Initialize FAISS index
-if not os.path.exists(FAISS_DIR):
-    os.makedirs(FAISS_DIR)
-faiss_index, faiss_index_file = load_or_create_faiss_index(
-    FAISS_DIR, EMBEDDING_DIM
-)
 
 
 # Pydantic model for request body (only the user query)
@@ -383,7 +374,7 @@ async def upload_and_process_document(file: UploadFile = File(...)):
         ]
 
         # Vectorize the chunks and save them to FAISS
-        vector_ids = embed_chunks_and_save_to_faiss(chunk_texts, processed_file_id)
+        vector_ids = embed_chunks(chunk_texts, processed_file_id)
 
         # Log the successful storage of embeddings in FAISS
         logging.info(f"12. Vector embeddings saved in FAISS with indices: {vector_ids}")
@@ -531,84 +522,32 @@ async def list_files():
 
 
 @app.get("/vectors/")
-async def list_vectors(
-    vector_ids: list[int] = Query(
-        None, description="Optional list of vector IDs to retrieve"
-    )
-):
-    """
-    Retrieve vectors from the FAISS index.
-    Args:
-        vector_ids: List of vector IDs to retrieve (optional).
-    Returns:
-        JSON containing the requested vectors or all vectors if no IDs are provided.
-    """
+async def list_vectors_endpoint(vector_ids: list[int] = Query(None)):
     try:
-        # Load the FAISS index
-        index = faiss.read_index(FAISS_INDEX_PATH)
-        total_vectors = index.ntotal
-
-        if vector_ids:
-            # Validate vector IDs
-            if max(vector_ids) >= total_vectors:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Some vector IDs are out of range. Maximum ID is {total_vectors - 1}.",
-                )
-
-            # Retrieve specific vectors
-            vectors = [index.reconstruct(i).tolist() for i in vector_ids]
-        else:
-            # Retrieve all vectors
-            vectors = [index.reconstruct(i).tolist() for i in range(total_vectors)]
-
+        logging.debug(f"API called to list vectors with IDs: {vector_ids}")
+        vectors = list_vectors(vector_ids)
+        logging.debug(f"Vectors retrieved: {len(vectors)}")
         return {"total_vectors": len(vectors), "vectors": vectors}
-
     except ValueError as e:
-        logging.error(f"ValueError interacting with FAISS index: {str(e)}")
-        raise HTTPException(status_code=400, detail="Error processing vector IDs.")
+        logging.error(f"ValueError in /vectors/ endpoint: {str(e)}")
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
-        logging.error(f"Unexpected error: {str(e)}")
+        logging.error(f"Unexpected error in /vectors/ endpoint: {str(e)}")
         raise HTTPException(status_code=500, detail="Unexpected error occurred.")
 
 
 @app.post("/search/")
 async def search_similar_chunks(request: SearchRequest):
-    query_text = request.query
-    top_k = request.top_k
+    """
+    Search the FAISS index for similar chunks to the input query.
+    """
+    logging.debug(f"Search query received: {request.query}, Top-K: {request.top_k}")
+    results = query_faiss(request.query, request.top_k)
 
-    # Encode the query into a vector
-    query_vector = model.encode([query_text])[0]  # Get the embedding
+    if not results:
+        raise HTTPException(status_code=404, detail="No similar chunks found")
 
-    # Perform the FAISS search
-    query_vector_np = np.array(
-        [query_vector], dtype="float32"
-    )  # Convert to numpy array
-    distances, faiss_ids = faiss_index.search(query_vector_np, top_k)
-
-    # Check if there are results
-    if len(faiss_ids[0]) == 0 or faiss_ids[0][0] == -1:
-        return {"results": []}
-
-    # Retrieve metadata for the results from MongoDB
-    results = []
-    for faiss_id, distance in zip(faiss_ids[0], distances[0]):
-        # Convert FAISS ID back to ObjectId
-        faiss_object_id = ObjectId(hex(faiss_id)[2:])
-        metadata = embeddings_collection.find_one({"faiss_id": faiss_object_id})
-        if metadata:
-            results.append(
-                {
-                    "chunk_text": metadata["chunk_text"],
-                    "distance": float(
-                        distance
-                    ),  # Convert numpy.float to JSON serializable
-                    "file_id": str(metadata["file_id"]),
-                    "chunk_index": metadata["chunk_index"],
-                }
-            )
-
-    return {"results": results}
+    return {"query": request.query, "top_k": request.top_k, "results": results}
 
 
 @app.options("/{path:path}")

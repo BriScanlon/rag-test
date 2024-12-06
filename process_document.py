@@ -69,14 +69,12 @@ def process_pdf(file_content):
 
             # Extract structured text for tables
             try:
-                page_dict = page.get_text("dict")
-                tables = extract_tables_from_page(page_dict)
+                page_text = page.get_text("text")  # Use plain text instead of "dict"
+                tables = extract_tables_from_page(page_text)  # Pass plain text to the function
                 extracted_data["tables"].append(tables)
                 logging.debug(f"Extracted tables from page {page_num + 1}")
             except Exception as e:
-                logging.warning(
-                    f"Failed to extract tables from page {page_num + 1}: {e}"
-                )
+                logging.warning(f"Failed to extract tables from page {page_num + 1}: {e}")
 
         # Close the document
         doc.close()
