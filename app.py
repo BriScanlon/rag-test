@@ -549,6 +549,34 @@ async def search_similar_chunks(request: SearchRequest):
 
     return {"query": request.query, "top_k": request.top_k, "results": results}
 
+class RagApiRequest(BaseModel):
+    document_chunks: str  # Accept a string for document chunks
+    user_query: str       # Accept a string for the user query
+    
+    
+@app.post("/rag_api/")
+async def call_rag_api(request: RagApiRequest):
+    """
+    Endpoint to send document chunks and a user query to the RAG API.
+    """
+    try:
+        # Extract data from the request
+        document_chunks = request.document_chunks
+        user_query = request.user_query
+
+        # Call the function and process the response
+        response = send_to_rag_api(document_chunks, user_query)
+
+        return {"status": "success", "response": response}
+    except HTTPException as e:
+        logging.error(f"HTTP Exception: {e.detail}")
+        raise e
+    except Exception as e:
+        logging.error(f"Unexpected error: {str(e)}")
+        raise HTTPException(
+            status_code=500, detail="An error occurred while processing the request."
+        )
+
 
 @app.options("/{path:path}")
 async def preflight_handler():

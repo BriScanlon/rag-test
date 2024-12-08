@@ -46,3 +46,5 @@ processed_docs/*
 faiss_index/*
 
 *.pdf
+faiss_index/faiss_id_counter.txt
+faiss_index/faiss_index.index
